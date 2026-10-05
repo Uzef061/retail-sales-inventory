@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Retail Sales & Inventory Management System (Single Host Express Architecture)",
   "scripts": {
-    "build": "cd frontend && npm install && npm run build",
+    "build": "cd frontend && npm install && npm run build && cd ../backend && npm install",
     "start": "cd backend && npm start",
     "dev": "cd frontend && npm run dev"
   },
