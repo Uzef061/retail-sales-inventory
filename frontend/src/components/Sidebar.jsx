@@ -123,9 +123,9 @@ export default function Sidebar({ onDataRefresh }) {
       <div className="mobile-header">
         <div className="brand-logo">
           <Store size={22} className="brand-icon" />
-          <span>{t('appName')}</span>
+          <span className="mobile-brand-title">{t('appName')}</span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        <div className="mobile-header-actions">
           <CustomLanguageSelector />
           <button
             className="theme-toggle-btn"
@@ -217,31 +217,24 @@ export default function Sidebar({ onDataRefresh }) {
       </aside>
 
       <style>{`
-        /* Sidebar Styling */
+        /* Sidebar Base Styling */
         .mobile-header {
           display: none;
-          height: 60px;
-          background-color: var(--card-bg);
-          border-bottom: 1px solid var(--border-color);
-          padding: 0 1.25rem;
-          align-items: center;
-          justify-content: space-between;
-          position: sticky;
-          top: 0;
-          z-index: 100;
         }
 
         .brand-logo {
           display: flex;
           align-items: center;
-          gap: 0.6rem;
+          gap: 0.5rem;
           font-weight: 700;
-          font-size: 1.1rem;
+          font-size: 1.05rem;
           color: var(--text-main);
+          white-space: nowrap;
         }
 
         .brand-icon {
           color: var(--primary);
+          flex-shrink: 0;
         }
 
         .mobile-toggle {
@@ -251,6 +244,7 @@ export default function Sidebar({ onDataRefresh }) {
           cursor: pointer;
           display: flex;
           align-items: center;
+          padding: 0.2rem;
         }
 
         .sidebar {
@@ -301,6 +295,7 @@ export default function Sidebar({ onDataRefresh }) {
           flex-direction: column;
           gap: 0.35rem;
           flex: 1;
+          overflow-y: auto;
         }
 
         .nav-link {
@@ -340,140 +335,40 @@ export default function Sidebar({ onDataRefresh }) {
           display: none;
         }
 
-        /* Custom Language Selector Dropdown */
-        .custom-lang-container {
-          position: relative;
-          display: inline-block;
-        }
-
-        .custom-lang-trigger {
-          display: inline-flex;
-          align-items: center;
-          gap: 0.45rem;
-          background-color: var(--input-bg);
-          border: 1px solid var(--border-color);
-          padding: 0.4rem 0.75rem;
-          border-radius: 20px;
-          color: var(--text-main);
-          font-size: 0.85rem;
-          font-weight: 600;
-          font-family: inherit;
-          cursor: pointer;
-          box-shadow: 0 2px 6px rgba(47, 41, 37, 0.05);
-          transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        .custom-lang-trigger:hover,
-        .custom-lang-trigger.active-trigger {
-          border-color: var(--primary);
-          background-color: var(--table-header-bg);
-          box-shadow: 0 3px 10px rgba(201, 106, 61, 0.15);
-        }
-
-        .custom-lang-globe {
-          color: var(--primary);
-          flex-shrink: 0;
-          transition: transform 0.2s ease;
-        }
-
-        .custom-lang-trigger:hover .custom-lang-globe {
-          transform: rotate(15deg);
-        }
-
-        .custom-lang-label {
-          line-height: 1.2;
-        }
-
-        .custom-lang-chevron {
-          color: var(--text-muted);
-          flex-shrink: 0;
-          transition: transform 0.2s ease, color 0.2s ease;
-        }
-
-        .custom-lang-trigger:hover .custom-lang-chevron,
-        .custom-lang-trigger.active-trigger .custom-lang-chevron {
-          color: var(--primary);
-        }
-
-        .custom-lang-chevron.chevron-rotated {
-          transform: rotate(180deg);
-        }
-
-        .custom-lang-dropdown {
-          position: absolute;
-          top: calc(100% + 6px);
-          right: 0;
-          min-width: 140px;
-          background-color: var(--card-bg);
-          border: 1px solid var(--border-color);
-          border-radius: var(--radius-md);
-          padding: 0.35rem;
-          box-shadow: var(--shadow-hover), 0 8px 24px rgba(0, 0, 0, 0.12);
-          z-index: 250;
-          display: flex;
-          flex-direction: column;
-          gap: 0.2rem;
-          animation: langDropFadeIn 0.18s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-
-        @keyframes langDropFadeIn {
-          from {
-            opacity: 0;
-            transform: translateY(-6px) scale(0.97);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0) scale(1);
-          }
-        }
-
-        .custom-lang-item {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          width: 100%;
-          padding: 0.5rem 0.75rem;
-          font-size: 0.85rem;
-          font-weight: 600;
-          font-family: inherit;
-          color: var(--text-main);
-          background: transparent;
-          border: none;
-          border-radius: var(--radius-sm);
-          cursor: pointer;
-          transition: all 0.15s ease;
-          text-align: left;
-        }
-
-        .custom-lang-item:hover {
-          background-color: rgba(201, 106, 61, 0.1);
-          color: var(--primary);
-        }
-
-        .custom-lang-item.selected {
-          background-color: rgba(201, 106, 61, 0.15);
-          color: var(--primary);
-          font-weight: 700;
-        }
-
-        .custom-lang-check {
-          color: var(--primary);
-          flex-shrink: 0;
-        }
-
-        @media (max-width: 860px) {
+        /* Responsive Drawer on Tablet & Mobile (<= 1024px) */
+        @media (max-width: 1024px) {
           .mobile-header {
             display: flex;
+            height: 60px;
+            background-color: var(--card-bg);
+            border-bottom: 1px solid var(--border-color);
+            padding: 0 1rem;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 900;
+            width: 100%;
+            box-sizing: border-box;
+          }
+
+          .mobile-header-actions {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
           }
 
           .sidebar {
             position: fixed;
             top: 0;
-            left: -260px;
+            left: -290px;
             bottom: 0;
+            width: 270px;
+            max-width: 85vw;
             height: 100vh;
-            transition: left 0.25s ease;
-            box-shadow: 4px 0 15px rgba(0,0,0,0.2);
+            z-index: 1000;
+            box-shadow: 4px 0 20px rgba(0, 0, 0, 0.25);
+            transition: left 0.25s cubic-bezier(0.4, 0, 0.2, 1);
           }
 
           .sidebar.sidebar-open {
@@ -488,7 +383,21 @@ export default function Sidebar({ onDataRefresh }) {
             right: 0;
             bottom: 0;
             background-color: rgba(0, 0, 0, 0.5);
-            z-index: 85;
+            z-index: 950;
+            backdrop-filter: blur(1px);
+          }
+        }
+
+        @media (max-width: 360px) {
+          .mobile-brand-title {
+            font-size: 0.85rem;
+            max-width: 85px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+          }
+          .mobile-header {
+            padding: 0 0.65rem;
           }
         }
       `}</style>
