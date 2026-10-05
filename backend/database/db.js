@@ -3,16 +3,22 @@ const seedData = require('./seed');
 const Product = require('../models/Product');
 
 const connectDB = async () => {
-  const mongoURI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/retail_inventory';
+  const mongoURI = process.env.MONGODB_URI ? process.env.MONGODB_URI.trim() : '';
 
-  try {
-    // Attempt standard MongoDB connection with 3-second timeout
-    await mongoose.connect(mongoURI, {
-      serverSelectionTimeoutMS: 3000
-    });
-    console.log(`✅ MongoDB connected successfully at ${mongoURI}`);
-  } catch (err) {
-    console.log('⚠️ Local MongoDB server not detected. Starting embedded MongoDB Memory Server for instant demonstration...');
+  if (mongoURI) {
+    try {
+      console.log('Connecting to MongoDB Atlas using configured MONGODB_URI...');
+      await mongoose.connect(mongoURI, {
+        serverSelectionTimeoutMS: 10000
+      });
+      console.log('Connected to MongoDB Atlas successfully.');
+    } catch (err) {
+      console.error('❌ Failed to connect to MongoDB Atlas:');
+      console.error(err.message);
+      process.exit(1);
+    }
+  } else {
+    console.log('⚠️ MONGODB_URI completely absent. Starting embedded MongoDB Memory Server as development fallback...');
     try {
       const { MongoMemoryServer } = require('mongodb-memory-server');
       const mongod = await MongoMemoryServer.create();
@@ -20,12 +26,12 @@ const connectDB = async () => {
       await mongoose.connect(inMemoryUri);
       console.log(`✅ Embedded MongoDB Memory Server started successfully at ${inMemoryUri}`);
     } catch (memErr) {
-      console.error('❌ Failed to connect to MongoDB:', memErr);
+      console.error('❌ Failed to start embedded MongoDB Memory Server:', memErr.message);
       process.exit(1);
     }
   }
 
-  // Auto-seed database if empty
+  // Auto-seed initial dummy dataset ONLY when the database is empty
   try {
     const productCount = await Product.countDocuments();
     if (productCount === 0) {
@@ -33,8 +39,10 @@ const connectDB = async () => {
       await seedData();
     }
   } catch (seedErr) {
-    console.error('Error auto-seeding database:', seedErr);
+    console.error('Error checking or seeding database:', seedErr.message);
   }
+
+  console.log('Database ready.');
 };
 
 module.exports = connectDB;

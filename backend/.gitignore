@@ -1,0 +1,11 @@
+# Node dependencies
+node_modules/
+
+# Production builds
+dist/
+build/
+
+# Environment variables
+.env
+.env.*
+!.env.example
