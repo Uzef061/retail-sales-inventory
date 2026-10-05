@@ -381,7 +381,7 @@ body {
   text-align: left;
   font-size: 0.875rem;
   background-color: var(--card-bg);
-  min-width: 520px; /* Ensures table headers/columns remain readable */
+  min-width: 520px;
 }
 
 .data-table th {
@@ -680,8 +680,20 @@ body {
   }
 }
 
-/* Tablet & iPad Viewports (<= 1024px) */
+/* Tablet & iPad & Mobile Viewports (<= 1024px) */
 @media (max-width: 1024px) {
+  .app-container {
+    flex-direction: column;
+    width: 100%;
+    min-height: 100vh;
+  }
+
+  .main-content {
+    width: 100%;
+    flex: 1;
+    min-width: 0;
+  }
+
   .dashboard-grid,
   .two-col-grid,
   .sales-page-grid {
@@ -690,7 +702,7 @@ body {
   }
 
   .page-wrapper {
-    padding: 1.5rem 1.25rem;
+    padding: 1.25rem 1rem;
   }
 }
 
