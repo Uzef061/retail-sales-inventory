@@ -1,0 +1,13 @@
+{
+  "name": "retail-sales-inventory-system",
+  "version": "1.0.0",
+  "description": "Retail Sales & Inventory Management System (Single Host Express Architecture)",
+  "scripts": {
+    "build": "cd frontend && npm run build",
+    "start": "cd backend && npm start",
+    "dev": "cd frontend && npm run dev"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}
