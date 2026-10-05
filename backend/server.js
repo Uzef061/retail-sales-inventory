@@ -2,7 +2,13 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
-require('dotenv').config();
+const dotenv = require('dotenv');
+
+// Ensure dotenv loads backend/.env before MongoDB connection code executes
+dotenv.config({ path: path.join(__dirname, '.env') });
+if (!process.env.MONGODB_URI) {
+  dotenv.config({ path: path.join(__dirname, '../.env') });
+}
 
 const connectDB = require('./database/db');
 const seedData = require('./database/seed');
@@ -21,9 +27,6 @@ const PORT = process.env.PORT || 5000;
 // Middleware
 app.use(cors());
 app.use(express.json());
-
-// Connect Database
-connectDB();
 
 // 1. REST API Routes
 app.use('/api/products', productRoutes);
@@ -80,6 +83,12 @@ app.use((err, req, res, next) => {
   res.status(500).json({ message: 'Internal Server Error', error: err.message });
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Retail Manager Application listening on http://localhost:${PORT}`);
-});
+// Start Server only after Database connection succeeds
+const startServer = async () => {
+  await connectDB();
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Retail Manager Application listening on port ${PORT}`);
+  });
+};
+
+startServer();
