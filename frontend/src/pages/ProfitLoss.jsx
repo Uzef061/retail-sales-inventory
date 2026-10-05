@@ -56,7 +56,7 @@ export default function ProfitLoss() {
       </div>
 
       {/* KPI Cards Grid */}
-      <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+      <div className="kpi-grid">
         <KPICard
           label={t('totalRevenue')}
           value={`₹${revenue.toLocaleString()}`}
@@ -90,7 +90,7 @@ export default function ProfitLoss() {
           backgroundColor: isNetLoss ? 'var(--badge-out-of-stock-bg)' : 'var(--kpi-icon-bg)',
           borderColor: isNetLoss ? 'var(--badge-out-of-stock-color)' : 'var(--primary)',
           display: 'flex',
-          justify: 'space-between',
+          justifyContent: 'space-between',
           alignItems: 'center',
           padding: '1.25rem 1.75rem',
           flexWrap: 'wrap',
@@ -113,7 +113,7 @@ export default function ProfitLoss() {
       </div>
 
       {/* Charts Grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+      <div className="two-col-grid">
         {/* Chart 1: Revenue vs Cost */}
         <div className="card">
           <h3 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>

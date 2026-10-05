@@ -165,7 +165,7 @@ export default function Sales() {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.8fr', gap: '1.5rem' }}>
+      <div className="sales-page-grid">
         {/* Left Column: Create Sales Form */}
         <div>
           <div className="card">
@@ -310,7 +310,7 @@ export default function Sales() {
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th style={{ width: '38px', textAlignment: 'center' }}>
+                      <th style={{ width: '38px', textAlign: 'center' }}>
                         <input
                           type="checkbox"
                           checked={selectedSaleIds.length === sales.length && sales.length > 0}

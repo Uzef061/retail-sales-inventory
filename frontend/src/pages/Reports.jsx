@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { BarChart3, TrendingUp, Calendar, AlertTriangle, Award, PieChart, DollarSign, Percent } from 'lucide-react';
+import { TrendingUp, Calendar, AlertTriangle, Award, PieChart, DollarSign, Percent } from 'lucide-react';
 import KPICard from '../components/KPICard';
 import { SalesTrendChart, TopSellingChart, CategoryPieChart } from '../components/ReportCharts';
 import { useApp } from '../context/AppContext';
@@ -41,7 +41,6 @@ export default function Reports() {
     profit = 0,
     loss = 0,
     profitMargin = 0,
-    totalSalesCount = 0,
     salesByDate = [],
     bestSellingProducts = [],
     salesByCategory = [],
@@ -60,7 +59,7 @@ export default function Reports() {
       </div>
 
       {/* Financial Summary KPI Cards */}
-      <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
+      <div className="kpi-grid">
         <KPICard
           label={t('totalRevenue')}
           value={`₹${totalSalesAmount.toLocaleString()}`}
@@ -87,7 +86,7 @@ export default function Reports() {
         />
       </div>
 
-      {/* 3 Interactive Visualizations Section */}
+      {/* Sales Trend Chart */}
       <div className="card mb-4">
         <h3 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <TrendingUp size={18} color="var(--primary)" />
@@ -96,8 +95,9 @@ export default function Reports() {
         <SalesTrendChart data={salesByDate} />
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginBottom: '1.5rem' }}>
-        {/* 2. Top-Selling Products Visualization */}
+      {/* Top Selling & Sales by Category Charts Grid */}
+      <div className="two-col-grid">
+        {/* Top-Selling Products Visualization */}
         <div className="card">
           <h3 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <Award size={18} color="var(--primary)" />
@@ -106,7 +106,7 @@ export default function Reports() {
           <TopSellingChart data={bestSellingProducts} />
         </div>
 
-        {/* 3. Sales by Category Visualization */}
+        {/* Sales by Category Visualization */}
         <div className="card">
           <h3 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <PieChart size={18} color="var(--secondary)" />
@@ -117,7 +117,7 @@ export default function Reports() {
       </div>
 
       {/* Tables Section */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+      <div className="two-col-grid" style={{ marginBottom: 0 }}>
         {/* Best-Selling Products Table */}
         <div className="card">
           <h3 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
