@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import Sidebar from './components/Sidebar';
 import Dashboard from './pages/Dashboard';
@@ -8,11 +8,19 @@ import Sales from './pages/Sales';
 import Customers from './pages/Customers';
 import Reports from './pages/Reports';
 import ProfitLoss from './pages/ProfitLoss';
+import SplashScreen from './components/SplashScreen';
 import { AppProvider } from './context/AppContext';
 
 export default function App() {
+  const [showSplash, setShowSplash] = useState(true);
+
+  const handleSplashFinish = () => {
+    setShowSplash(false);
+  };
+
   return (
     <AppProvider>
+      {showSplash && <SplashScreen onFinish={handleSplashFinish} />}
       <Router>
         <div className="app-container">
           <Sidebar />

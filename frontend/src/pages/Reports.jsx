@@ -3,17 +3,19 @@ import axios from 'axios';
 import { TrendingUp, Calendar, AlertTriangle, Award, PieChart, DollarSign, Percent } from 'lucide-react';
 import KPICard from '../components/KPICard';
 import { SalesTrendChart, TopSellingChart, CategoryPieChart } from '../components/ReportCharts';
+import PeriodSelector from '../components/PeriodSelector';
 import { useApp } from '../context/AppContext';
 
 export default function Reports() {
   const [reports, setReports] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [period, setPeriod] = useState('7days');
   const { t } = useApp();
 
   const fetchReports = async () => {
     try {
       setLoading(true);
-      const res = await axios.get('/api/reports');
+      const res = await axios.get('/api/reports', { params: { period } });
       setReports(res.data);
     } catch (err) {
       console.error('Failed to fetch reports', err);
@@ -24,7 +26,7 @@ export default function Reports() {
 
   useEffect(() => {
     fetchReports();
-  }, []);
+  }, [period]);
 
   if (loading) {
     return (
@@ -56,6 +58,7 @@ export default function Reports() {
           <h1 className="page-title">{t('reportsTitle')}</h1>
           <p className="page-subtitle">{t('reportsSubtitle')}</p>
         </div>
+        <PeriodSelector period={period} onChange={setPeriod} />
       </div>
 
       {/* Financial Summary KPI Cards */}
@@ -92,7 +95,9 @@ export default function Reports() {
           <TrendingUp size={18} color="var(--primary)" />
           {t('salesTrend')}
         </h3>
-        <SalesTrendChart data={salesByDate} />
+        <div className="responsive-scroll-container">
+          <SalesTrendChart data={salesByDate} />
+        </div>
       </div>
 
       {/* Top Selling & Sales by Category Charts Grid */}
@@ -103,7 +108,9 @@ export default function Reports() {
             <Award size={18} color="var(--primary)" />
             {t('topSellingProducts')}
           </h3>
-          <TopSellingChart data={bestSellingProducts} />
+          <div className="responsive-scroll-container">
+            <TopSellingChart data={bestSellingProducts} />
+          </div>
         </div>
 
         {/* Sales by Category Visualization */}
@@ -112,7 +119,9 @@ export default function Reports() {
             <PieChart size={18} color="var(--secondary)" />
             {t('salesByCategory')}
           </h3>
-          <CategoryPieChart data={salesByCategory} />
+          <div className="responsive-scroll-container">
+            <CategoryPieChart data={salesByCategory} />
+          </div>
         </div>
       </div>
 

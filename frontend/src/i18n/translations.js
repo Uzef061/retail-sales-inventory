@@ -139,7 +139,16 @@ export const translations = {
     confirmDeleteSale: "Are you sure you want to delete this sale record?",
     confirmBulkDeleteSales: "Are you sure you want to delete {count} selected sales records?",
     confirmDeleteInventory: "Are you sure you want to delete this product from inventory?",
-    confirmBulkDeleteInventory: "Are you sure you want to delete {count} selected inventory products?"
+    confirmBulkDeleteInventory: "Are you sure you want to delete {count} selected inventory products?",
+
+    // Periods
+    period7days: "Last 7 Days",
+    periodThisWeek: "This Week",
+    periodPrevWeek: "Previous Week",
+    period30days: "Last 30 Days",
+    period90days: "Last 90 Days",
+    periodAll: "All Time",
+    noDataForPeriod: "No sales data available for this period."
   },
 
   ne: {
@@ -282,7 +291,16 @@ export const translations = {
     confirmDeleteSale: "के तपाईं यो बिक्री रेकर्ड हटाउन चाहनुहुन्छ?",
     confirmBulkDeleteSales: "के तपाईं छानिएका {count} वटा बिक्री रेकर्ड हटाउन चाहनुहुन्छ?",
     confirmDeleteInventory: "के तपाईं यो सामान स्टकबाट हटाउन चाहनुहुन्छ?",
-    confirmBulkDeleteInventory: "के तपाईं छानिएका {count} वटा सामान स्टकबाट हटाउन चाहनुहुन्छ?"
+    confirmBulkDeleteInventory: "के तपाईं छानिएका {count} वटा सामान स्टकबाट हटाउन चाहनुहुन्छ?",
+
+    // Periods
+    period7days: "पछिल्लो ७ दिन",
+    periodThisWeek: "यो हप्ता",
+    periodPrevWeek: "अघिल्लो हप्ता",
+    period30days: "पछिल्लो ३० दिन",
+    period90days: "पछिल्लो ९० दिन",
+    periodAll: "सबै समय",
+    noDataForPeriod: "यस अवधिमा कुनै बिक्री डाटा उपलब्ध छैन।"
   },
 
   hi: {
@@ -425,6 +443,15 @@ export const translations = {
     confirmDeleteSale: "क्या आप इस बिक्री रिकॉर्ड को हटाना चाहते हैं?",
     confirmBulkDeleteSales: "क्या आप चयनित {count} बिक्री रिकॉर्ड्स हटाना चाहते हैं?",
     confirmDeleteInventory: "क्या आप इस उत्पाद को इन्वेंट्री से हटाना चाहते हैं?",
-    confirmBulkDeleteInventory: "क्या आप चयनित {count} इन्वेंट्री उत्पाद हटाना चाहते हैं?"
+    confirmBulkDeleteInventory: "क्या आप चयनित {count} इन्वेंट्री उत्पाद हटाना चाहते हैं?",
+
+    // Periods
+    period7days: "पिछले 7 दिन",
+    periodThisWeek: "इस सप्ताह",
+    periodPrevWeek: "पिछला सप्ताह",
+    period30days: "पिछले 30 दिन",
+    period90days: "पिछले 90 दिन",
+    periodAll: "सभी समय",
+    noDataForPeriod: "इस अवधि के लिए कोई बिक्री डेटा उपलब्ध नहीं है।"
   }
 };

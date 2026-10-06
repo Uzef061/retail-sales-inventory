@@ -12,17 +12,23 @@ export function SalesTrendChart({ data = [] }) {
     <div className="chart-wrapper">
       <div className="bar-chart-container">
         {data.map((item, idx) => {
-          const heightPercent = Math.max((item.totalSales / maxSales) * 100, 5);
+          const heightPercent = Math.max((item.totalSales / maxSales) * 76, 5);
+
+          let alignClass = 'tip-center';
+          if (idx === 0) alignClass = 'tip-left';
+          else if (idx === data.length - 1) alignClass = 'tip-right';
+
           return (
             <div key={idx} className="chart-bar-item">
               <div className="bar-column-wrapper">
-                <span className="bar-val-tooltip">
-                  ₹{item.totalSales.toLocaleString()} ({item.totalQuantity} items)
-                </span>
                 <div
                   className="bar-column"
                   style={{ height: `${heightPercent}%` }}
-                />
+                >
+                  <span className={`bar-val-tooltip ${alignClass}`}>
+                    ₹{item.totalSales.toLocaleString()} ({item.totalQuantity || 0} items)
+                  </span>
+                </div>
               </div>
               <div className="bar-date-label">{item._id}</div>
             </div>
@@ -33,7 +39,8 @@ export function SalesTrendChart({ data = [] }) {
       <style>{`
         .chart-wrapper {
           width: 100%;
-          padding-top: 0.5rem;
+          padding-top: 2.2rem;
+          overflow: visible;
         }
         .bar-chart-container {
           display: flex;
@@ -43,6 +50,7 @@ export function SalesTrendChart({ data = [] }) {
           gap: 0.75rem;
           padding-bottom: 0.5rem;
           border-bottom: 1px solid var(--border-color);
+          overflow: visible;
         }
         .chart-bar-item {
           flex: 1;
@@ -51,6 +59,7 @@ export function SalesTrendChart({ data = [] }) {
           align-items: center;
           height: 100%;
           justify-content: flex-end;
+          overflow: visible;
         }
         .bar-column-wrapper {
           width: 100%;
@@ -60,33 +69,49 @@ export function SalesTrendChart({ data = [] }) {
           align-items: flex-end;
           justify-content: center;
           position: relative;
+          overflow: visible;
         }
         .bar-column {
           width: 100%;
           background: linear-gradient(180deg, var(--primary) 0%, var(--secondary) 100%);
           border-radius: 4px 4px 0 0;
           transition: height 0.3s ease, opacity 0.2s ease;
+          position: relative;
+          overflow: visible;
         }
         .bar-column-wrapper:hover .bar-column {
           opacity: 0.85;
         }
         .bar-val-tooltip {
           position: absolute;
-          top: -30px;
+          bottom: calc(100% + 6px);
           background-color: var(--text-main);
           color: var(--card-bg);
           font-size: 0.725rem;
-          font-weight: 600;
+          font-weight: 700;
           padding: 0.25rem 0.5rem;
-          border-radius: 4px;
+          border-radius: 5px;
           white-space: nowrap;
           opacity: 0;
           pointer-events: none;
           transition: opacity 0.2s ease;
-          z-index: 10;
-          box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+          z-index: 50;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.25);
         }
-        .bar-column-wrapper:hover .bar-val-tooltip {
+        .tip-center {
+          left: 50%;
+          transform: translateX(-50%);
+        }
+        .tip-left {
+          left: 0;
+          transform: translateX(0);
+        }
+        .tip-right {
+          right: 0;
+          transform: translateX(0);
+        }
+        .bar-column-wrapper:hover .bar-val-tooltip,
+        .bar-column:hover .bar-val-tooltip {
           opacity: 1;
         }
         .bar-date-label {

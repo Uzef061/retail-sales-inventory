@@ -78,14 +78,27 @@ const seedData = async () => {
     };
 
     const sampleSales = [
-      makeSaleData(0, 0, 2, 5), // Rahul buys Coffee x2 (Rev: 900, Cost: 600, Profit: 300)
-      makeSaleData(1, 4, 1, 4), // Priya buys Bottle x1 (Rev: 650, Cost: 420, Profit: 230)
-      makeSaleData(2, 2, 4, 3), // Ananya buys Choco x4 (Rev: 600, Cost: 360, Profit: 240)
-      makeSaleData(3, 8, 1, 2), // Vikram buys Olive Oil x1 (Rev: 780, Cost: 520, Profit: 260)
-      makeSaleData(4, 1, 2, 1), // Sneha buys Green Tea x2 (Rev: 560, Cost: 360, Profit: 200)
-      makeSaleData(0, 6, 3, 1), // Rahul buys Tote Bag x3 (Rev: 750, Cost: 420, Profit: 330)
-      makeSaleData(1, 3, 2, 0), // Priya buys Oat Milk x2 (Rev: 440, Cost: 300, Profit: 140)
-      makeSaleData(2, 0, 1, 0)  // Ananya buys Coffee x1 (Rev: 450, Cost: 300, Profit: 150)
+      // Current Week / Last 7 Days (0 to 3 days ago)
+      makeSaleData(0, 0, 2, 0), // Today: Coffee x2 (Rev: 900, Cost: 600, Profit: 300)
+      makeSaleData(1, 4, 1, 1), // 1 day ago: Bottle x1 (Rev: 650, Cost: 420, Profit: 230)
+      makeSaleData(2, 2, 4, 2), // 2 days ago: Choco x4 (Rev: 600, Cost: 360, Profit: 240)
+      makeSaleData(3, 8, 1, 3), // 3 days ago: Olive Oil x1 (Rev: 780, Cost: 520, Profit: 260)
+
+      // Immediately Preceding Calendar Week / Previous Week (8 to 11 days ago)
+      makeSaleData(4, 1, 3, 8),  // 8 days ago: Green Tea x3 (Rev: 840, Cost: 540, Profit: 300)
+      makeSaleData(0, 6, 2, 9),  // 9 days ago: Tote Bag x2 (Rev: 500, Cost: 280, Profit: 220)
+      makeSaleData(1, 3, 2, 10), // 10 days ago: Oat Milk x2 (Rev: 440, Cost: 300, Profit: 140)
+      makeSaleData(2, 0, 2, 11), // 11 days ago: Coffee x2 (Rev: 900, Cost: 600, Profit: 300)
+
+      // Rolling 30-Day Window (16 to 24 days ago)
+      makeSaleData(3, 5, 2, 16), // 16 days ago: Mug x2 (Rev: 600, Cost: 360, Profit: 240)
+      makeSaleData(4, 2, 5, 20), // 20 days ago: Choco x5 (Rev: 750, Cost: 450, Profit: 300)
+      makeSaleData(0, 4, 1, 24), // 24 days ago: Bottle x1 (Rev: 650, Cost: 420, Profit: 230)
+
+      // Rolling 90-Day / All Time Window (35 to 55 days ago)
+      makeSaleData(1, 8, 2, 35), // 35 days ago: Olive Oil x2 (Rev: 1560, Cost: 1040, Profit: 520)
+      makeSaleData(2, 1, 4, 45), // 45 days ago: Green Tea x4 (Rev: 1120, Cost: 720, Profit: 400)
+      makeSaleData(3, 6, 4, 55)  // 55 days ago: Tote Bag x4 (Rev: 1000, Cost: 560, Profit: 440)
     ];
 
     const insertedSales = await Sale.insertMany(sampleSales);

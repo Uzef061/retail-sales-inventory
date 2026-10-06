@@ -3,17 +3,19 @@ import axios from 'axios';
 import { TrendingUp, DollarSign, PieChart, Percent, AlertOctagon } from 'lucide-react';
 import KPICard from '../components/KPICard';
 import { RevenueVsCostChart, ProfitTrendChart } from '../components/ProfitLossCharts';
+import PeriodSelector from '../components/PeriodSelector';
 import { useApp } from '../context/AppContext';
 
 export default function ProfitLoss() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [period, setPeriod] = useState('7days');
   const { t } = useApp();
 
   const fetchProfitLoss = async () => {
     try {
       setLoading(true);
-      const res = await axios.get('/api/profit-loss');
+      const res = await axios.get('/api/profit-loss', { params: { period } });
       setData(res.data);
     } catch (err) {
       console.error('Failed to fetch profit loss data', err);
@@ -24,7 +26,7 @@ export default function ProfitLoss() {
 
   useEffect(() => {
     fetchProfitLoss();
-  }, []);
+  }, [period]);
 
   if (loading) {
     return (
@@ -53,6 +55,7 @@ export default function ProfitLoss() {
           <h1 className="page-title">{t('profitLossTitle')}</h1>
           <p className="page-subtitle">{t('profitLossSubtitle')}</p>
         </div>
+        <PeriodSelector period={period} onChange={setPeriod} />
       </div>
 
       {/* KPI Cards Grid */}
@@ -120,7 +123,9 @@ export default function ProfitLoss() {
             <TrendingUp size={18} color="var(--primary)" />
             {t('revenueVsCost')}
           </h3>
-          <RevenueVsCostChart data={trendData} />
+          <div className="responsive-scroll-container">
+            <RevenueVsCostChart data={trendData} />
+          </div>
         </div>
 
         {/* Chart 2: Profit Trend */}
@@ -129,7 +134,9 @@ export default function ProfitLoss() {
             <PieChart size={18} color="var(--secondary)" />
             {t('profitTrend')}
           </h3>
-          <ProfitTrendChart data={trendData} />
+          <div className="responsive-scroll-container">
+            <ProfitTrendChart data={trendData} />
+          </div>
         </div>
       </div>
     </div>

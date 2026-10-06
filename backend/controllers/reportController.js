@@ -1,11 +1,16 @@
 const Sale = require('../models/Sale');
 const Product = require('../models/Product');
+const { buildPeriodMatch } = require('../utils/periodUtils');
 
-// GET /api/reports
+// GET /api/reports?period=7days|thisWeek|prevWeek|30days|90days|all
 exports.getReports = async (req, res) => {
   try {
-    // 1. Financial Summary (Total Revenue, Cost, Profit, Margin)
+    const period = req.query.period || '7days';
+    const periodMatch = buildPeriodMatch(period);
+
+    // 1. Financial Summary for selected period
     const financialAgg = await Sale.aggregate([
+      { $match: periodMatch },
       {
         $group: {
           _id: null,
@@ -29,8 +34,9 @@ exports.getReports = async (req, res) => {
     const profitMargin = totalSalesAmount > 0 ? parseFloat(((netProfit / totalSalesAmount) * 100).toFixed(2)) : 0;
     const totalSalesCount = fin.totalCount || 0;
 
-    // 2. Sales By Date
+    // 2. Sales By Date for selected period
     const salesByDate = await Sale.aggregate([
+      { $match: periodMatch },
       {
         $group: {
           _id: { $dateToString: { format: '%Y-%m-%d', date: '$saleDate' } },
@@ -44,8 +50,9 @@ exports.getReports = async (req, res) => {
       { $sort: { _id: 1 } }
     ]);
 
-    // 3. Best-Selling Products
+    // 3. Best-Selling Products for selected period
     const bestSellingProducts = await Sale.aggregate([
+      { $match: periodMatch },
       {
         $group: {
           _id: '$product',
@@ -78,8 +85,9 @@ exports.getReports = async (req, res) => {
       }
     ]);
 
-    // 4. Sales By Category
+    // 4. Sales By Category for selected period
     const salesByCategory = await Sale.aggregate([
+      { $match: periodMatch },
       {
         $lookup: {
           from: 'products',
@@ -103,6 +111,7 @@ exports.getReports = async (req, res) => {
     const lowStockProducts = await Product.find({ stock: { $lte: 10 } }).sort({ stock: 1 });
 
     res.status(200).json({
+      period,
       totalSalesAmount,
       totalCostAmount,
       netProfit,

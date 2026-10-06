@@ -307,7 +307,7 @@ export default function Sales() {
               <p className="empty-state">No sales transactions recorded yet.</p>
             ) : (
               <div className="table-responsive">
-                <table className="data-table">
+                <table className="data-table sales-table">
                   <thead>
                     <tr>
                       <th style={{ width: '38px', textAlign: 'center' }}>

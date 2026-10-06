@@ -1,9 +1,13 @@
 const Product = require('../models/Product');
 const Sale = require('../models/Sale');
+const { buildPeriodMatch } = require('../utils/periodUtils');
 
-// GET /api/dashboard
+// GET /api/dashboard?period=7days|thisWeek|prevWeek|30days|90days|all
 exports.getDashboardData = async (req, res) => {
   try {
+    const period = req.query.period || '7days';
+    const periodMatch = buildPeriodMatch(period);
+
     // 1. Total Products
     const totalProducts = await Product.countDocuments();
 
@@ -27,8 +31,9 @@ exports.getDashboardData = async (req, res) => {
     const lowStockProducts = await Product.find({ stock: { $lte: 10 } }).sort({ stock: 1 });
     const lowStockCount = lowStockProducts.length;
 
-    // 5. Net Profit (Total Revenue - Total Cost)
+    // 5. Net Profit for selected period (or overall)
     const profitAgg = await Sale.aggregate([
+      { $match: periodMatch },
       {
         $group: {
           _id: null,
@@ -47,13 +52,9 @@ exports.getDashboardData = async (req, res) => {
       .sort({ saleDate: -1 })
       .limit(5);
 
-    // 7. Simple Sales Chart Data (Last 7 Days)
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
-    sevenDaysAgo.setHours(0, 0, 0, 0);
-
+    // 7. Sales Chart Data for Selected Period
     const salesChartRaw = await Sale.aggregate([
-      { $match: { saleDate: { $gte: sevenDaysAgo } } },
+      { $match: periodMatch },
       {
         $group: {
           _id: { $dateToString: { format: '%Y-%m-%d', date: '$saleDate' } },
@@ -64,22 +65,38 @@ exports.getDashboardData = async (req, res) => {
       { $sort: { _id: 1 } }
     ]);
 
-    // Build complete array for last 7 days (including days with 0 sales)
     const salesChart = [];
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      const dateStr = d.toISOString().split('T')[0];
-      const found = salesChartRaw.find(item => item._id === dateStr);
-      salesChart.push({
-        date: dateStr,
-        dayLabel: d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
-        totalSales: found ? found.totalSales : 0,
-        count: found ? found.count : 0
+    if (periodMatch.saleDate && periodMatch.saleDate.$gte && (period === '7days' || period === 'thisWeek' || period === 'prevWeek')) {
+      const startDate = new Date(periodMatch.saleDate.$gte);
+      const endDate = periodMatch.saleDate.$lte ? new Date(periodMatch.saleDate.$lte) : new Date();
+
+      const curr = new Date(startDate);
+      while (curr <= endDate) {
+        const dateStr = curr.toISOString().split('T')[0];
+        const found = salesChartRaw.find(item => item._id === dateStr);
+        salesChart.push({
+          date: dateStr,
+          dayLabel: curr.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
+          totalSales: found ? found.totalSales : 0,
+          count: found ? found.count : 0
+        });
+        curr.setDate(curr.getDate() + 1);
+      }
+    } else {
+      // 30days, 90days, or all time
+      salesChartRaw.forEach((item) => {
+        const d = new Date(item._id);
+        salesChart.push({
+          date: item._id,
+          dayLabel: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+          totalSales: item.totalSales,
+          count: item.count
+        });
       });
     }
 
     res.status(200).json({
+      period,
       totalProducts,
       totalStock,
       todaysSales,

@@ -1,22 +1,13 @@
 const Sale = require('../models/Sale');
+const { buildPeriodMatch } = require('../utils/periodUtils');
 
-// GET /api/profit-loss
+// GET /api/profit-loss?period=7days|thisWeek|prevWeek|30days|90days|all
 exports.getProfitLoss = async (req, res) => {
   try {
-    const { startDate, endDate } = req.query;
-    let matchQuery = {};
+    const { startDate, endDate, period = '7days' } = req.query;
+    const matchQuery = buildPeriodMatch(period, startDate, endDate);
 
-    if (startDate || endDate) {
-      matchQuery.saleDate = {};
-      if (startDate) matchQuery.saleDate.$gte = new Date(startDate);
-      if (endDate) {
-        const end = new Date(endDate);
-        end.setHours(23, 59, 59, 999);
-        matchQuery.saleDate.$lte = end;
-      }
-    }
-
-    // 1. Overall Aggregation
+    // 1. Overall Aggregation for selected period
     const agg = await Sale.aggregate([
       { $match: matchQuery },
       {
@@ -37,11 +28,9 @@ exports.getProfitLoss = async (req, res) => {
 
     const profit = netProfit > 0 ? netProfit : 0;
     const loss = netProfit < 0 ? Math.abs(netProfit) : 0;
-
-    // Prevent division-by-zero
     const profitMargin = revenue > 0 ? parseFloat(((netProfit / revenue) * 100).toFixed(2)) : 0;
 
-    // 2. Trend Data (Daily Revenue vs Cost & Profit)
+    // 2. Trend Data (Daily Revenue vs Cost & Profit) for selected period
     const trendRaw = await Sale.aggregate([
       { $match: matchQuery },
       {
@@ -57,6 +46,7 @@ exports.getProfitLoss = async (req, res) => {
     ]);
 
     res.status(200).json({
+      period,
       revenue,
       cost,
       netProfit,

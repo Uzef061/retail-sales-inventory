@@ -4,18 +4,20 @@ import { Package, Boxes, ShoppingCart, AlertTriangle, ArrowRight, DollarSign } f
 import { Link } from 'react-router-dom';
 import KPICard from '../components/KPICard';
 import SalesChart from '../components/SalesChart';
+import PeriodSelector from '../components/PeriodSelector';
 import { useApp } from '../context/AppContext';
 
 export default function Dashboard() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [period, setPeriod] = useState('7days');
   const { t } = useApp();
 
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
-      const res = await axios.get('/api/dashboard');
+      const res = await axios.get('/api/dashboard', { params: { period } });
       setData(res.data);
       setError(null);
     } catch (err) {
@@ -28,7 +30,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetchDashboardData();
-  }, []);
+  }, [period]);
 
   if (loading) {
     return (
@@ -115,8 +117,13 @@ export default function Dashboard() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
           {/* Sales Chart Card */}
           <div className="card">
-            <h3 className="card-title">{t('weeklySalesTrend')}</h3>
-            <SalesChart data={salesChart} />
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+              <h3 className="card-title" style={{ margin: 0 }}>{t('weeklySalesTrend')}</h3>
+              <PeriodSelector period={period} onChange={setPeriod} />
+            </div>
+            <div className="responsive-scroll-container">
+              <SalesChart data={salesChart} />
+            </div>
           </div>
 
           {/* Recent Sales Table */}

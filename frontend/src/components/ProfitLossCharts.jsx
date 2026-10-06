@@ -26,28 +26,38 @@ export function RevenueVsCostChart({ data = [] }) {
 
       <div className="rev-cost-bars">
         {data.map((item, idx) => {
-          const revHeight = Math.max(((item.revenue || 0) / maxVal) * 100, 4);
-          const costHeight = Math.max(((item.cost || 0) / maxVal) * 100, 4);
+          const revHeight = Math.max(((item.revenue || 0) / maxVal) * 76, 4);
+          const costHeight = Math.max(((item.cost || 0) / maxVal) * 76, 4);
+
+          let alignClass = 'tip-center';
+          if (idx === 0) alignClass = 'tip-left';
+          else if (idx === data.length - 1) alignClass = 'tip-right';
 
           return (
             <div key={idx} className="rev-cost-group">
               <div className="group-columns">
                 {/* Revenue Bar */}
                 <div className="col-bar-wrap">
-                  <span className="col-tooltip">Revenue: ₹{(item.revenue || 0).toLocaleString()}</span>
                   <div
                     className="col-bar rev-bar"
                     style={{ height: `${revHeight}%` }}
-                  />
+                  >
+                    <span className={`col-tooltip ${alignClass}`}>
+                      Revenue: ₹{(item.revenue || 0).toLocaleString()}
+                    </span>
+                  </div>
                 </div>
 
                 {/* Cost Bar */}
                 <div className="col-bar-wrap">
-                  <span className="col-tooltip">Cost: ₹{(item.cost || 0).toLocaleString()}</span>
                   <div
                     className="col-bar cost-bar"
                     style={{ height: `${costHeight}%` }}
-                  />
+                  >
+                    <span className={`col-tooltip ${alignClass}`}>
+                      Cost: ₹{(item.cost || 0).toLocaleString()}
+                    </span>
+                  </div>
                 </div>
               </div>
               <div className="rev-cost-date">{item.date}</div>
@@ -59,7 +69,8 @@ export function RevenueVsCostChart({ data = [] }) {
       <style>{`
         .rev-cost-container {
           width: 100%;
-          padding-top: 0.5rem;
+          padding-top: 2.2rem;
+          overflow: visible;
         }
         .rev-cost-legend {
           display: flex;
@@ -88,6 +99,7 @@ export function RevenueVsCostChart({ data = [] }) {
           gap: 0.85rem;
           padding-bottom: 0.5rem;
           border-bottom: 1px solid var(--border-color);
+          overflow: visible;
         }
         .rev-cost-group {
           flex: 1;
@@ -96,6 +108,7 @@ export function RevenueVsCostChart({ data = [] }) {
           align-items: center;
           height: 100%;
           justify-content: flex-end;
+          overflow: visible;
         }
         .group-columns {
           width: 100%;
@@ -105,6 +118,7 @@ export function RevenueVsCostChart({ data = [] }) {
           align-items: flex-end;
           justify-content: center;
           gap: 4px;
+          overflow: visible;
         }
         .col-bar-wrap {
           flex: 1;
@@ -112,11 +126,17 @@ export function RevenueVsCostChart({ data = [] }) {
           display: flex;
           align-items: flex-end;
           position: relative;
+          overflow: visible;
         }
         .col-bar {
           width: 100%;
           border-radius: 4px 4px 0 0;
-          transition: height 0.3s ease;
+          transition: height 0.3s ease, opacity 0.2s ease;
+          position: relative;
+          overflow: visible;
+        }
+        .col-bar-wrap:hover .col-bar {
+          opacity: 0.88;
         }
         .rev-bar {
           background-color: var(--badge-in-stock-color);
@@ -126,22 +146,34 @@ export function RevenueVsCostChart({ data = [] }) {
         }
         .col-tooltip {
           position: absolute;
-          top: -30px;
-          left: 50%;
-          transform: translateX(-50%);
+          bottom: calc(100% + 6px);
           background-color: var(--text-main);
-          color: var(--card-bg);
-          font-size: 0.7rem;
-          font-weight: 600;
-          padding: 0.2rem 0.45rem;
-          border-radius: 4px;
+          color: #FFFFFF;
+          font-size: 0.725rem;
+          font-weight: 700;
+          padding: 0.25rem 0.5rem;
+          border-radius: 5px;
           white-space: nowrap;
           opacity: 0;
           pointer-events: none;
           transition: opacity 0.2s ease;
-          z-index: 10;
+          z-index: 50;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.25);
         }
-        .col-bar-wrap:hover .col-tooltip {
+        .tip-center {
+          left: 50%;
+          transform: translateX(-50%);
+        }
+        .tip-left {
+          left: 0;
+          transform: translateX(0);
+        }
+        .tip-right {
+          right: 0;
+          transform: translateX(0);
+        }
+        .col-bar-wrap:hover .col-tooltip,
+        .col-bar:hover .col-tooltip {
           opacity: 1;
         }
         .rev-cost-date {
@@ -168,18 +200,23 @@ export function ProfitTrendChart({ data = [] }) {
       <div className="profit-bars font-bold">
         {data.map((item, idx) => {
           const isPositive = (item.profit || 0) >= 0;
-          const heightPercent = Math.max((Math.abs(item.profit || 0) / maxProfit) * 100, 5);
+          const heightPercent = Math.max((Math.abs(item.profit || 0) / maxProfit) * 76, 5);
+
+          let alignClass = 'tip-center';
+          if (idx === 0) alignClass = 'tip-left';
+          else if (idx === data.length - 1) alignClass = 'tip-right';
 
           return (
             <div key={idx} className="pbar-group">
               <div className="pbar-wrapper">
-                <span className="pbar-tooltip">
-                  {isPositive ? 'Profit' : 'Loss'}: ₹{Math.abs(item.profit || 0).toLocaleString()}
-                </span>
                 <div
                   className={`pbar-column ${isPositive ? 'profit-bg' : 'loss-bg'}`}
                   style={{ height: `${heightPercent}%` }}
-                />
+                >
+                  <span className={`pbar-tooltip ${alignClass}`}>
+                    {isPositive ? 'Profit' : 'Loss'}: ₹{Math.abs(item.profit || 0).toLocaleString()}
+                  </span>
+                </div>
               </div>
               <div className="pbar-date">{item.date}</div>
             </div>
@@ -190,7 +227,8 @@ export function ProfitTrendChart({ data = [] }) {
       <style>{`
         .profit-trend-container {
           width: 100%;
-          padding-top: 0.5rem;
+          padding-top: 2.2rem;
+          overflow: visible;
         }
         .profit-bars {
           display: flex;
@@ -200,6 +238,7 @@ export function ProfitTrendChart({ data = [] }) {
           gap: 0.75rem;
           padding-bottom: 0.5rem;
           border-bottom: 1px solid var(--border-color);
+          overflow: visible;
         }
         .pbar-group {
           flex: 1;
@@ -208,6 +247,7 @@ export function ProfitTrendChart({ data = [] }) {
           align-items: center;
           height: 100%;
           justify-content: flex-end;
+          overflow: visible;
         }
         .pbar-wrapper {
           width: 100%;
@@ -217,11 +257,17 @@ export function ProfitTrendChart({ data = [] }) {
           align-items: flex-end;
           justify-content: center;
           position: relative;
+          overflow: visible;
         }
         .pbar-column {
           width: 100%;
           border-radius: 4px 4px 0 0;
-          transition: height 0.3s ease;
+          transition: height 0.3s ease, opacity 0.2s ease;
+          position: relative;
+          overflow: visible;
+        }
+        .pbar-wrapper:hover .pbar-column {
+          opacity: 0.88;
         }
         .profit-bg {
           background: linear-gradient(180deg, var(--primary) 0%, var(--secondary) 100%);
@@ -231,20 +277,34 @@ export function ProfitTrendChart({ data = [] }) {
         }
         .pbar-tooltip {
           position: absolute;
-          top: -30px;
+          bottom: calc(100% + 6px);
           background-color: var(--text-main);
-          color: var(--card-bg);
-          font-size: 0.7rem;
-          font-weight: 600;
-          padding: 0.2rem 0.45rem;
-          border-radius: 4px;
+          color: #FFFFFF;
+          font-size: 0.725rem;
+          font-weight: 700;
+          padding: 0.25rem 0.5rem;
+          border-radius: 5px;
           white-space: nowrap;
           opacity: 0;
           pointer-events: none;
           transition: opacity 0.2s ease;
-          z-index: 10;
+          z-index: 50;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.25);
         }
-        .pbar-wrapper:hover .pbar-tooltip {
+        .tip-center {
+          left: 50%;
+          transform: translateX(-50%);
+        }
+        .tip-left {
+          left: 0;
+          transform: translateX(0);
+        }
+        .tip-right {
+          right: 0;
+          transform: translateX(0);
+        }
+        .pbar-wrapper:hover .pbar-tooltip,
+        .pbar-column:hover .pbar-tooltip {
           opacity: 1;
         }
         .pbar-date {
