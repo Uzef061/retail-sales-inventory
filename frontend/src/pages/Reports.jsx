@@ -3,19 +3,22 @@ import axios from 'axios';
 import { TrendingUp, Calendar, AlertTriangle, Award, PieChart, DollarSign, Percent } from 'lucide-react';
 import KPICard from '../components/KPICard';
 import { SalesTrendChart, TopSellingChart, CategoryPieChart } from '../components/ReportCharts';
-import PeriodSelector from '../components/PeriodSelector';
+import PeriodNavigator from '../components/PeriodNavigator';
 import { useApp } from '../context/AppContext';
 
 export default function Reports() {
   const [reports, setReports] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [period, setPeriod] = useState('7days');
+  const [mode, setMode] = useState('week');
+  const [refDate, setRefDate] = useState(new Date());
   const { t } = useApp();
 
   const fetchReports = async () => {
     try {
       setLoading(true);
-      const res = await axios.get('/api/reports', { params: { period } });
+      const res = await axios.get('/api/reports', {
+        params: { mode, refDate: refDate.toISOString() }
+      });
       setReports(res.data);
     } catch (err) {
       console.error('Failed to fetch reports', err);
@@ -24,9 +27,21 @@ export default function Reports() {
     }
   };
 
+  const handleNavigate = (direction) => {
+    const newDate = new Date(refDate);
+    if (mode === 'week') {
+      newDate.setDate(newDate.getDate() + direction * 7);
+    } else if (mode === 'month') {
+      newDate.setMonth(newDate.getMonth() + direction);
+    } else if (mode === 'year') {
+      newDate.setFullYear(newDate.getFullYear() + direction);
+    }
+    setRefDate(newDate);
+  };
+
   useEffect(() => {
     fetchReports();
-  }, [period]);
+  }, [mode, refDate]);
 
   if (loading) {
     return (
@@ -58,7 +73,15 @@ export default function Reports() {
           <h1 className="page-title">{t('reportsTitle')}</h1>
           <p className="page-subtitle">{t('reportsSubtitle')}</p>
         </div>
-        <PeriodSelector period={period} onChange={setPeriod} />
+        <PeriodNavigator
+          mode={mode}
+          label={reports?.label}
+          onModeChange={(newMode) => {
+            setMode(newMode);
+            setRefDate(new Date());
+          }}
+          onNavigate={handleNavigate}
+        />
       </div>
 
       {/* Financial Summary KPI Cards */}

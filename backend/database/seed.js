@@ -5,7 +5,7 @@ const User = require('../models/User');
 
 const seedData = async () => {
   try {
-    // Clear existing data
+    // Clear existing data when explicit re-seed is triggered
     await Product.deleteMany({});
     await Customer.deleteMany({});
     await Sale.deleteMany({});
@@ -49,7 +49,7 @@ const seedData = async () => {
     const insertedCustomers = await Customer.insertMany(sampleCustomers);
     console.log(`Inserted ${insertedCustomers.length} customers.`);
 
-    // 4. Create ~8-10 Sales with snapshot financial metrics
+    // 4. Create Sales distributed across periods
     const now = new Date();
     const daysAgo = (days) => {
       const d = new Date(now);
@@ -116,4 +116,76 @@ const seedData = async () => {
   }
 };
 
+/**
+ * Safely ensure historical demo sales exist for all periods without deleting or wiping current data.
+ */
+const ensureHistoricalSales = async () => {
+  try {
+    const products = await Product.find();
+    const customers = await Customer.find();
+
+    if (products.length === 0 || customers.length === 0) {
+      console.log('Database missing products or customers. Seeding dataset...');
+      return await seedData();
+    }
+
+    const { buildPeriodMatch } = require('../utils/periodUtils');
+    const now = new Date();
+    const daysAgo = (days) => {
+      const d = new Date(now);
+      d.setDate(d.getDate() - days);
+      return d;
+    };
+
+    const periodsToCheck = [
+      { period: 'thisWeek', daysBack: [0, 1, 2] },
+      { period: 'prevWeek', daysBack: [8, 9, 10] },
+      { period: '30days', daysBack: [16, 20, 24] },
+      { period: '90days', daysBack: [35, 45, 55] }
+    ];
+
+    const missingSales = [];
+
+    for (const pItem of periodsToCheck) {
+      const match = buildPeriodMatch(pItem.period);
+      const existingCount = await Sale.countDocuments(match);
+
+      if (existingCount === 0) {
+        pItem.daysBack.forEach((days, idx) => {
+          const prod = products[idx % products.length];
+          const cust = customers[idx % customers.length];
+          const qty = (idx % 3) + 1;
+          const sp = prod.sellingPrice || prod.price || 300;
+          const cp = prod.costPrice || Math.round(sp * 0.7);
+          const totalAmount = sp * qty;
+          const totalCostAmount = cp * qty;
+          const profit = totalAmount - totalCostAmount;
+
+          missingSales.push({
+            customer: cust._id,
+            product: prod._id,
+            quantity: qty,
+            sellingPrice: sp,
+            costPrice: cp,
+            totalAmount,
+            totalCostAmount,
+            profit,
+            saleDate: daysAgo(days)
+          });
+        });
+      }
+    }
+
+    if (missingSales.length > 0) {
+      await Sale.insertMany(missingSales);
+      console.log(`Inserted ${missingSales.length} missing historical sales records without wiping existing data.`);
+    } else {
+      console.log('Historical sales records present for all periods.');
+    }
+  } catch (err) {
+    console.error('Error ensuring historical sales:', err.message);
+  }
+};
+
 module.exports = seedData;
+module.exports.ensureHistoricalSales = ensureHistoricalSales;

@@ -84,6 +84,7 @@ export const translations = {
     selectProduct: "Select Product",
     quantity: "Quantity",
     unitPriceLabel: "Selling Price (₹)",
+    saleDate: "Sale Date",
     totalAmount: "Total Amount",
     submitSale: "Submit Sale",
     processingSale: "Processing Sale...",
@@ -148,7 +149,12 @@ export const translations = {
     period30days: "Last 30 Days",
     period90days: "Last 90 Days",
     periodAll: "All Time",
-    noDataForPeriod: "No sales data available for this period."
+    noDataForPeriod: "No sales data available for this period.",
+    modeWeek: "Week",
+    modeMonth: "Month",
+    modeYear: "Year",
+    prev: "Previous",
+    next: "Next"
   },
 
   ne: {
@@ -236,6 +242,7 @@ export const translations = {
     selectProduct: "सामान छान्नुहोस्",
     quantity: "मात्रा",
     unitPriceLabel: "बिक्री मूल्य (₹)",
+    saleDate: "बिक्री मिति",
     totalAmount: "कुल रकम",
     submitSale: "बिक्री बुझाउनुहोस्",
     processingSale: "बिक्री प्रक्रियामा छ...",
@@ -300,7 +307,12 @@ export const translations = {
     period30days: "पछिल्लो ३० दिन",
     period90days: "पछिल्लो ९० दिन",
     periodAll: "सबै समय",
-    noDataForPeriod: "यस अवधिमा कुनै बिक्री डाटा उपलब्ध छैन।"
+    noDataForPeriod: "यस अवधिमा कुनै बिक्री डाटा उपलब्ध छैन।",
+    modeWeek: "हप्ता",
+    modeMonth: "महिना",
+    modeYear: "वर्ष",
+    prev: "अघिल्लो",
+    next: "पछिल्लो"
   },
 
   hi: {
@@ -388,6 +400,7 @@ export const translations = {
     selectProduct: "उत्पाद चुनें",
     quantity: "मात्रा",
     unitPriceLabel: "विक्रय मूल्य (₹)",
+    saleDate: "बिक्री की तारीख",
     totalAmount: "कुल राशि",
     submitSale: "बिक्री दर्ज करें",
     processingSale: "बिक्री हो रही है...",
@@ -452,6 +465,11 @@ export const translations = {
     period30days: "पिछले 30 दिन",
     period90days: "पिछले 90 दिन",
     periodAll: "सभी समय",
-    noDataForPeriod: "इस अवधि के लिए कोई बिक्री डेटा उपलब्ध नहीं है।"
+    noDataForPeriod: "इस अवधि के लिए कोई बिक्री डेटा उपलब्ध नहीं है।",
+    modeWeek: "सप्ताह",
+    modeMonth: "माह",
+    modeYear: "वर्ष",
+    prev: "पिछला",
+    next: "अगला"
   }
 };

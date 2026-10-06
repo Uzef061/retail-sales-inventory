@@ -18,7 +18,7 @@ exports.getSales = async (req, res) => {
 // POST /api/sales
 exports.createSale = async (req, res) => {
   try {
-    const { customer, product, quantity, price, sellingPrice, costPrice } = req.body;
+    const { customer, product, quantity, price, sellingPrice, costPrice, saleDate } = req.body;
 
     if (!customer || !product || !quantity) {
       return res.status(400).json({ message: 'Customer, product, and quantity are required.' });
@@ -27,6 +27,25 @@ exports.createSale = async (req, res) => {
     const qty = Number(quantity);
     if (qty <= 0) {
       return res.status(400).json({ message: 'Quantity must be greater than 0.' });
+    }
+
+    // Validate saleDate if provided
+    let parsedSaleDate = new Date();
+    if (saleDate) {
+      let dateToParse = saleDate;
+      if (typeof saleDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(saleDate)) {
+        dateToParse = `${saleDate}T12:00:00`;
+      }
+      const d = new Date(dateToParse);
+      if (isNaN(d.getTime())) {
+        return res.status(400).json({ message: 'Sale Date must be a valid date.' });
+      }
+      const endOfToday = new Date();
+      endOfToday.setHours(23, 59, 59, 999);
+      if (d > endOfToday) {
+        return res.status(400).json({ message: 'Future sale dates are not allowed.' });
+      }
+      parsedSaleDate = d;
     }
 
     // Find target product
@@ -76,7 +95,7 @@ exports.createSale = async (req, res) => {
       totalAmount,
       totalCostAmount,
       profit,
-      saleDate: new Date()
+      saleDate: parsedSaleDate
     });
 
     const savedSale = await newSale.save();

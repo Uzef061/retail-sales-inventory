@@ -13,14 +13,24 @@ const saleSchema = new mongoose.Schema(
       required: true
     },
     quantity: { type: Number, required: true, min: 1 },
-    sellingPrice: { type: Number, required: true, min: 0 },
-    costPrice: { type: Number, required: true, min: 0 },
-    totalAmount: { type: Number, required: true, min: 0 }, // Revenue
+    sellingPrice: { type: Number, required: true, min: 0 }, // Actual transaction selling price
+    costPrice: { type: Number, required: true, min: 0 },    // Transaction cost price snapshot
+    totalAmount: { type: Number, required: true, min: 0 },  // Revenue
     totalCostAmount: { type: Number, required: true, min: 0 }, // Total Cost
-    profit: { type: Number, required: true }, // Net Profit for this sale
-    saleDate: { type: Date, default: Date.now }
+    profit: { type: Number, required: true },               // Net Profit for this sale
+    saleDate: { type: Date, default: Date.now },
+    demoId: { type: String, sparse: true },                 // Idempotent demo record key
+    isDemoRecord: { type: Boolean, default: false }
   },
   { timestamps: true }
 );
+
+// Virtual helper for actual selling price compatibility
+saleSchema.virtual('actualSellingPrice').get(function () {
+  return this.sellingPrice;
+});
+
+saleSchema.set('toJSON', { virtuals: true });
+saleSchema.set('toObject', { virtuals: true });
 
 module.exports = mongoose.model('Sale', saleSchema);

@@ -1,58 +1,31 @@
 const Sale = require('../models/Sale');
 const Product = require('../models/Product');
-const { buildPeriodMatch } = require('../utils/periodUtils');
+const { getPeriodDetails, buildChartBreakdown } = require('../utils/periodUtils');
 
-// GET /api/reports?period=7days|thisWeek|prevWeek|30days|90days|all
+// GET /api/reports?mode=week|month|year&refDate=2026-10-06
 exports.getReports = async (req, res) => {
   try {
-    const period = req.query.period || '7days';
-    const periodMatch = buildPeriodMatch(period);
+    const mode = req.query.mode || req.query.period || 'week';
+    const refDate = req.query.refDate || req.query.date;
 
-    // 1. Financial Summary for selected period
-    const financialAgg = await Sale.aggregate([
-      { $match: periodMatch },
-      {
-        $group: {
-          _id: null,
-          totalRevenue: { $sum: '$totalAmount' },
-          totalCost: { $sum: '$totalCostAmount' },
-          netProfit: { $sum: '$profit' },
-          totalCount: { $sum: 1 }
-        }
-      }
-    ]);
+    const periodInfo = getPeriodDetails(mode, refDate);
+    const { matchQuery, label, startDate, endDate } = periodInfo;
 
-    const fin = financialAgg.length > 0
-      ? financialAgg[0]
-      : { totalRevenue: 0, totalCost: 0, netProfit: 0, totalCount: 0 };
+    const salesInPeriod = await Sale.find(matchQuery);
 
-    const totalSalesAmount = fin.totalRevenue || 0;
-    const totalCostAmount = fin.totalCost || 0;
-    const netProfit = fin.netProfit !== undefined ? fin.netProfit : (totalSalesAmount - totalCostAmount);
+    const totalSalesAmount = salesInPeriod.reduce((sum, s) => sum + (s.totalAmount || 0), 0);
+    const totalCostAmount = salesInPeriod.reduce((sum, s) => sum + (s.totalCostAmount || 0), 0);
+    const netProfit = salesInPeriod.reduce((sum, s) => sum + (s.profit !== undefined ? s.profit : (s.totalAmount - s.totalCostAmount)), 0);
+
     const profit = netProfit > 0 ? netProfit : 0;
     const loss = netProfit < 0 ? Math.abs(netProfit) : 0;
     const profitMargin = totalSalesAmount > 0 ? parseFloat(((netProfit / totalSalesAmount) * 100).toFixed(2)) : 0;
-    const totalSalesCount = fin.totalCount || 0;
 
-    // 2. Sales By Date for selected period
-    const salesByDate = await Sale.aggregate([
-      { $match: periodMatch },
-      {
-        $group: {
-          _id: { $dateToString: { format: '%Y-%m-%d', date: '$saleDate' } },
-          totalSales: { $sum: '$totalAmount' },
-          totalCost: { $sum: '$totalCostAmount' },
-          profit: { $sum: '$profit' },
-          totalQuantity: { $sum: '$quantity' },
-          salesCount: { $sum: 1 }
-        }
-      },
-      { $sort: { _id: 1 } }
-    ]);
+    const salesByDate = buildChartBreakdown(periodInfo.mode, startDate, endDate, salesInPeriod);
 
-    // 3. Best-Selling Products for selected period
+    // Best-selling products in period
     const bestSellingProducts = await Sale.aggregate([
-      { $match: periodMatch },
+      { $match: matchQuery },
       {
         $group: {
           _id: '$product',
@@ -85,9 +58,9 @@ exports.getReports = async (req, res) => {
       }
     ]);
 
-    // 4. Sales By Category for selected period
+    // Sales by Category in period
     const salesByCategory = await Sale.aggregate([
-      { $match: periodMatch },
+      { $match: matchQuery },
       {
         $lookup: {
           from: 'products',
@@ -107,18 +80,21 @@ exports.getReports = async (req, res) => {
       { $sort: { totalRevenue: -1 } }
     ]);
 
-    // 5. Low-Stock Products
     const lowStockProducts = await Product.find({ stock: { $lte: 10 } }).sort({ stock: 1 });
 
     res.status(200).json({
-      period,
+      mode: periodInfo.mode,
+      refDate: periodInfo.refDate.toISOString(),
+      label,
+      startDate,
+      endDate,
       totalSalesAmount,
       totalCostAmount,
       netProfit,
       profit,
       loss,
       profitMargin,
-      totalSalesCount,
+      totalSalesCount: salesInPeriod.length,
       salesByDate,
       bestSellingProducts,
       salesByCategory,

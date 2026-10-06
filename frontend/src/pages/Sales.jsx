@@ -1,7 +1,255 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { ShoppingBag, ShoppingCart, CheckCircle2, Trash2 } from 'lucide-react';
+import {
+  ShoppingBag,
+  ShoppingCart,
+  CheckCircle2,
+  Trash2,
+  User,
+  Package,
+  Calendar,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Check
+} from 'lucide-react';
 import { useApp } from '../context/AppContext';
+
+/**
+ * CustomSelect - Replicates the visual design, animation, and interaction style of CustomLanguageSelector
+ */
+function CustomSelect({ value, onChange, options = [], icon: Icon, placeholder = 'Select...' }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const selectedOption = options.find((opt) => opt.value === value);
+
+  return (
+    <div className="custom-select-container" ref={dropdownRef}>
+      <button
+        type="button"
+        className={`custom-select-trigger ${isOpen ? 'active-trigger' : ''}`}
+        onClick={() => setIsOpen(!isOpen)}
+        aria-expanded={isOpen}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {Icon && <Icon size={16} style={{ color: 'var(--primary)', flexShrink: 0 }} />}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', overflow: 'hidden' }}>
+            <span style={{ fontWeight: 600 }}>{selectedOption ? selectedOption.label : placeholder}</span>
+            {selectedOption?.subLabel && (
+              <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 500 }}>
+                {selectedOption.subLabel}
+              </span>
+            )}
+          </div>
+        </div>
+        <ChevronDown size={15} className={`custom-select-chevron ${isOpen ? 'chevron-rotated' : ''}`} />
+      </button>
+
+      {isOpen && (
+        <div className="custom-select-dropdown">
+          {options.map((item) => {
+            const isSelected = item.value === value;
+            return (
+              <button
+                key={item.value}
+                type="button"
+                disabled={item.disabled}
+                className={`custom-select-item ${isSelected ? 'selected' : ''} ${item.disabled ? 'disabled' : ''}`}
+                onClick={() => {
+                  if (!item.disabled) {
+                    onChange(item.value);
+                    setIsOpen(false);
+                  }
+                }}
+              >
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.1rem', overflow: 'hidden' }}>
+                  <span style={{ fontWeight: isSelected ? 700 : 600 }}>{item.label}</span>
+                  {item.subLabel && (
+                    <span style={{ fontSize: '0.75rem', color: isSelected ? 'var(--primary)' : 'var(--text-muted)' }}>
+                      {item.subLabel}
+                    </span>
+                  )}
+                </div>
+                {isSelected && <Check size={15} className="custom-select-check" />}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * CustomDatePicker - Polished custom date picker matching Language Selector UI language and DD/MM/YYYY format
+ */
+function CustomDatePicker({ value, onChange, maxDate }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef(null);
+
+  const parseIsoDate = (dateStr) => {
+    if (!dateStr) return new Date();
+    const parts = dateStr.split('-');
+    if (parts.length === 3) {
+      return new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]), 12, 0, 0);
+    }
+    return new Date();
+  };
+
+  const [viewDate, setViewDate] = useState(() => parseIsoDate(value));
+
+  useEffect(() => {
+    if (value) {
+      setViewDate(parseIsoDate(value));
+    }
+  }, [value]);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const formatDDMMYYYY = (dateStr) => {
+    if (!dateStr) return '';
+    const parts = dateStr.split('-');
+    if (parts.length === 3) {
+      return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    }
+    return dateStr;
+  };
+
+  const handlePrevMonth = (e) => {
+    e.stopPropagation();
+    setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1));
+  };
+
+  const handleNextMonth = (e) => {
+    e.stopPropagation();
+    setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1));
+  };
+
+  const year = viewDate.getFullYear();
+  const month = viewDate.getMonth();
+
+  const monthNames = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ];
+
+  const firstDayIndex = (new Date(year, month, 1).getDay() + 6) % 7; // Monday = 0
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  const todayStr = new Date().toISOString().split('T')[0];
+  const maxLimitDate = maxDate ? parseIsoDate(maxDate) : new Date();
+  maxLimitDate.setHours(23, 59, 59, 999);
+
+  const daysGrid = [];
+  for (let i = 0; i < firstDayIndex; i++) {
+    daysGrid.push(null);
+  }
+  for (let d = 1; d <= daysInMonth; d++) {
+    daysGrid.push(d);
+  }
+
+  const handleSelectDay = (d) => {
+    if (!d) return;
+    const mStr = String(month + 1).padStart(2, '0');
+    const dStr = String(d).padStart(2, '0');
+    const selectedDateStr = `${year}-${mStr}-${dStr}`;
+
+    const cellDate = new Date(year, month, d, 12, 0, 0);
+    if (cellDate > maxLimitDate) {
+      return;
+    }
+
+    onChange(selectedDateStr);
+    setIsOpen(false);
+  };
+
+  return (
+    <div className="custom-select-container" ref={dropdownRef}>
+      <button
+        type="button"
+        className={`custom-select-trigger ${isOpen ? 'active-trigger' : ''}`}
+        onClick={() => setIsOpen(!isOpen)}
+        aria-expanded={isOpen}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem' }}>
+          <Calendar size={16} style={{ color: 'var(--primary)', flexShrink: 0 }} />
+          <span style={{ fontWeight: 600 }}>{formatDDMMYYYY(value)}</span>
+        </div>
+        <ChevronDown size={15} className={`custom-select-chevron ${isOpen ? 'chevron-rotated' : ''}`} />
+      </button>
+
+      {isOpen && (
+        <div className="custom-datepicker-dropdown">
+          <div className="custom-datepicker-header">
+            <button type="button" className="datepicker-nav-btn" onClick={handlePrevMonth}>
+              <ChevronLeft size={15} />
+            </button>
+            <span className="datepicker-month-title">
+              {monthNames[month]} {year}
+            </span>
+            <button type="button" className="datepicker-nav-btn" onClick={handleNextMonth}>
+              <ChevronRight size={15} />
+            </button>
+          </div>
+
+          <div className="custom-datepicker-weekdays">
+            {['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'].map((w) => (
+              <span key={w} className="datepicker-weekday">{w}</span>
+            ))}
+          </div>
+
+          <div className="custom-datepicker-grid">
+            {daysGrid.map((dayNum, idx) => {
+              if (dayNum === null) {
+                return <div key={`empty-${idx}`} className="datepicker-day empty" />;
+              }
+
+              const mStr = String(month + 1).padStart(2, '0');
+              const dStr = String(dayNum).padStart(2, '0');
+              const dateIsoStr = `${year}-${mStr}-${dStr}`;
+              const cellDate = new Date(year, month, dayNum, 12, 0, 0);
+
+              const isSelected = value === dateIsoStr;
+              const isToday = todayStr === dateIsoStr;
+              const isDisabled = cellDate > maxLimitDate;
+
+              return (
+                <button
+                  key={`day-${dayNum}`}
+                  type="button"
+                  disabled={isDisabled}
+                  className={`datepicker-day ${isSelected ? 'selected' : ''} ${isToday ? 'today' : ''} ${isDisabled ? 'disabled' : ''}`}
+                  onClick={() => handleSelectDay(dayNum)}
+                >
+                  {dayNum}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function Sales() {
   const [sales, setSales] = useState([]);
@@ -13,11 +261,14 @@ export default function Sales() {
   // Selection State for Bulk Deletion
   const [selectedSaleIds, setSelectedSaleIds] = useState([]);
 
+  const getTodayDateStr = () => new Date().toISOString().split('T')[0];
+
   // Sales Form State
   const [selectedCustomer, setSelectedCustomer] = useState('');
   const [selectedProduct, setSelectedProduct] = useState('');
   const [quantity, setQuantity] = useState(1);
   const [unitPrice, setUnitPrice] = useState(0);
+  const [saleDate, setSaleDate] = useState(getTodayDateStr());
   const [totalAmount, setTotalAmount] = useState(0);
 
   const [submitting, setSubmitting] = useState(false);
@@ -69,11 +320,18 @@ export default function Sales() {
     }
   };
 
+  // Update total amount when selling price changes
+  const handleUnitPriceChange = (valStr) => {
+    setUnitPrice(valStr);
+    const priceVal = Number(valStr) || 0;
+    setTotalAmount(priceVal * Number(quantity));
+  };
+
   // Update total amount when quantity changes
   const handleQuantityChange = (qtyStr) => {
-    const qty = Math.max(1, Number(qtyStr));
+    const qty = Math.max(1, Number(qtyStr) || 1);
     setQuantity(qty);
-    setTotalAmount(unitPrice * qty);
+    setTotalAmount((Number(unitPrice) || 0) * qty);
   };
 
   const handleSaleSubmit = async (e) => {
@@ -83,6 +341,25 @@ export default function Sales() {
 
     if (!selectedCustomer || !selectedProduct || !quantity) {
       setFormError('Please fill in all sales details.');
+      return;
+    }
+
+    const priceNum = Number(unitPrice);
+    if (isNaN(priceNum) || priceNum < 0) {
+      setFormError('Selling price must be a valid non-negative number.');
+      return;
+    }
+
+    if (!saleDate) {
+      setFormError('Please select a valid sale date.');
+      return;
+    }
+
+    const selectedD = new Date(`${saleDate}T12:00:00`);
+    const endOfToday = new Date();
+    endOfToday.setHours(23, 59, 59, 999);
+    if (selectedD > endOfToday) {
+      setFormError('Future sale dates are not allowed.');
       return;
     }
 
@@ -98,12 +375,15 @@ export default function Sales() {
         customer: selectedCustomer,
         product: selectedProduct,
         quantity: Number(quantity),
-        price: Number(unitPrice),
-        totalAmount: Number(totalAmount)
+        price: priceNum,
+        sellingPrice: priceNum,
+        totalAmount: Number(totalAmount),
+        saleDate: saleDate
       });
 
       setSuccessMsg(t('saleSuccess'));
       setQuantity(1);
+      setSaleDate(getTodayDateStr());
 
       // Refresh sales and updated products list
       fetchData();
@@ -156,6 +436,23 @@ export default function Sales() {
 
   const currentProduct = products.find((p) => p._id === selectedProduct);
 
+  const customerOptions = customers.map((c) => ({
+    value: c._id,
+    label: c.name,
+    subLabel: c.phone ? `(${c.phone})` : ''
+  }));
+
+  const productOptions = products.map((p) => {
+    const priceVal = p.sellingPrice || p.price;
+    const isOutOfStock = p.stock === 0;
+    return {
+      value: p._id,
+      label: p.name,
+      subLabel: `₹${priceVal} • ${t('stock')}: ${p.stock}${isOutOfStock ? ` [${t('outOfStock')}]` : ''}`,
+      disabled: isOutOfStock
+    };
+  });
+
   return (
     <div className="page-wrapper">
       <div className="page-header">
@@ -191,40 +488,27 @@ export default function Sales() {
               {/* Select Customer */}
               <div className="form-group">
                 <label className="form-label">{t('selectCustomer')}</label>
-                <select
-                  className="form-select"
+                <CustomSelect
                   value={selectedCustomer}
-                  onChange={(e) => setSelectedCustomer(e.target.value)}
-                  required
-                >
-                  {customers.map((c) => (
-                    <option key={c._id} value={c._id}>
-                      {c.name} ({c.phone})
-                    </option>
-                  ))}
-                </select>
+                  onChange={(val) => setSelectedCustomer(val)}
+                  options={customerOptions}
+                  icon={User}
+                  placeholder="Select Customer..."
+                />
               </div>
 
               {/* Select Product */}
               <div className="form-group">
                 <label className="form-label">{t('selectProduct')}</label>
-                <select
-                  className="form-select"
+                <CustomSelect
                   value={selectedProduct}
-                  onChange={(e) => handleProductChange(e.target.value)}
-                  required
-                >
-                  {products.map((p) => {
-                    const priceVal = p.sellingPrice || p.price;
-                    return (
-                      <option key={p._id} value={p._id} disabled={p.stock === 0}>
-                        {p.name} - ₹{priceVal} ({t('stock')}: {p.stock}) {p.stock === 0 ? `[${t('outOfStock')}]` : ''}
-                      </option>
-                    );
-                  })}
-                </select>
+                  onChange={(val) => handleProductChange(val)}
+                  options={productOptions}
+                  icon={Package}
+                  placeholder="Select Product..."
+                />
                 {currentProduct && (
-                  <span style={{ fontSize: '0.78rem', color: currentProduct.stock <= 5 ? 'var(--badge-out-of-stock-color)' : 'var(--text-muted)', marginTop: '0.2rem' }}>
+                  <span style={{ fontSize: '0.78rem', color: currentProduct.stock <= 5 ? 'var(--badge-out-of-stock-color)' : 'var(--text-muted)', marginTop: '0.25rem' }}>
                     Available stock: <strong>{currentProduct.stock} {t('units')}</strong>
                   </span>
                 )}
@@ -248,12 +532,24 @@ export default function Sales() {
                   <label className="form-label">{t('unitPriceLabel')}</label>
                   <input
                     type="number"
+                    min="0"
+                    step="any"
                     className="form-input"
                     value={unitPrice}
-                    readOnly
-                    style={{ backgroundColor: 'var(--table-header-bg)' }}
+                    onChange={(e) => handleUnitPriceChange(e.target.value)}
+                    required
                   />
                 </div>
+              </div>
+
+              {/* Sale Date */}
+              <div className="form-group">
+                <label className="form-label">{t('saleDate')}</label>
+                <CustomDatePicker
+                  value={saleDate}
+                  maxDate={getTodayDateStr()}
+                  onChange={(val) => setSaleDate(val)}
+                />
               </div>
 
               {/* Total Amount Box */}
@@ -336,13 +632,14 @@ export default function Sales() {
                             onChange={() => handleToggleSelectSale(sale._id)}
                           />
                         </td>
-                        <td className="text-muted" style={{ fontSize: '0.8rem' }}>
-                          {new Date(sale.saleDate).toLocaleDateString('en-IN', {
-                            month: 'short',
-                            day: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit'
-                          })}
+                        <td className="text-muted" style={{ fontSize: '0.825rem', whiteSpace: 'nowrap', fontWeight: 600 }}>
+                          {sale.saleDate ? (() => {
+                            const d = new Date(sale.saleDate);
+                            const day = String(d.getDate()).padStart(2, '0');
+                            const month = String(d.getMonth() + 1).padStart(2, '0');
+                            const year = d.getFullYear();
+                            return `${day}/${month}/${year}`;
+                          })() : '-'}
                         </td>
                         <td className="font-bold">{sale.customer?.name || 'Walk-in'}</td>
                         <td>{sale.product?.name || 'Item'}</td>

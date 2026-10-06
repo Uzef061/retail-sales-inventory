@@ -4,20 +4,23 @@ import { Package, Boxes, ShoppingCart, AlertTriangle, ArrowRight, DollarSign } f
 import { Link } from 'react-router-dom';
 import KPICard from '../components/KPICard';
 import SalesChart from '../components/SalesChart';
-import PeriodSelector from '../components/PeriodSelector';
+import PeriodNavigator from '../components/PeriodNavigator';
 import { useApp } from '../context/AppContext';
 
 export default function Dashboard() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [period, setPeriod] = useState('7days');
+  const [mode, setMode] = useState('week');
+  const [refDate, setRefDate] = useState(new Date());
   const { t } = useApp();
 
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
-      const res = await axios.get('/api/dashboard', { params: { period } });
+      const res = await axios.get('/api/dashboard', {
+        params: { mode, refDate: refDate.toISOString() }
+      });
       setData(res.data);
       setError(null);
     } catch (err) {
@@ -28,9 +31,21 @@ export default function Dashboard() {
     }
   };
 
+  const handleNavigate = (direction) => {
+    const newDate = new Date(refDate);
+    if (mode === 'week') {
+      newDate.setDate(newDate.getDate() + direction * 7);
+    } else if (mode === 'month') {
+      newDate.setMonth(newDate.getMonth() + direction);
+    } else if (mode === 'year') {
+      newDate.setFullYear(newDate.getFullYear() + direction);
+    }
+    setRefDate(newDate);
+  };
+
   useEffect(() => {
     fetchDashboardData();
-  }, [period]);
+  }, [mode, refDate]);
 
   if (loading) {
     return (
@@ -119,7 +134,15 @@ export default function Dashboard() {
           <div className="card">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
               <h3 className="card-title" style={{ margin: 0 }}>{t('weeklySalesTrend')}</h3>
-              <PeriodSelector period={period} onChange={setPeriod} />
+              <PeriodNavigator
+                mode={mode}
+                label={data?.label}
+                onModeChange={(newMode) => {
+                  setMode(newMode);
+                  setRefDate(new Date());
+                }}
+                onNavigate={handleNavigate}
+              />
             </div>
             <div className="responsive-scroll-container">
               <SalesChart data={salesChart} />
