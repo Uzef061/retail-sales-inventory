@@ -104,7 +104,7 @@ class AuthService extends ChangeNotifier {
       );
       throw ApiException(
         statusCode: 0,
-        category: AuthErrorCategory.network,
+        category: AuthErrorCategory.unknown,
         correlationId: reqId,
         message: 'Google Sign-In prompt failed: $e',
       );

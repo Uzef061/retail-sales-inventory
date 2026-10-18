@@ -42,7 +42,9 @@ class _LoginScreenState extends State<LoginScreen> {
   String _formatErrorMessage(ApiException e) {
     switch (e.category) {
       case AuthErrorCategory.network:
-        return 'Cannot connect to server. Please check internet access or server URL in Settings.';
+        return e.message.isNotEmpty
+            ? e.message
+            : 'Cannot connect to server. Please check internet access or server URL in Settings.';
       case AuthErrorCategory.timeout:
         return 'Server took too long to respond. The free Render instance might be waking up (please retry).';
       case AuthErrorCategory.storage:
