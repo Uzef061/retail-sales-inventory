@@ -5,10 +5,10 @@ class ApiConfig {
 
   // Google OAuth Web Client ID (from Google Cloud Console)
   // Required on Android to obtain an OpenID Connect ID token for backend server verification
-  static const String googleServerClientId = String.fromEnvironment(
+  static String get googleServerClientId => const String.fromEnvironment(
     'GOOGLE_SERVER_CLIENT_ID',
     defaultValue: '',
-  );
+  ).trim();
 
   static const String prefsBaseUrlKey = 'api_base_url';
   static const String prefsTokenKey = 'auth_token';

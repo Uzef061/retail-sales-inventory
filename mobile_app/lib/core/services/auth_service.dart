@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config/api_config.dart';
@@ -92,6 +93,10 @@ class AuthService extends ChangeNotifier {
 
     GoogleSignInAccount? account;
     try {
+      try {
+        await googleSignIn.signOut();
+      } catch (_) {}
+
       AuthLogger.logStage(
         correlationId: reqId,
         stage: 'google_prompt_started',
@@ -102,11 +107,18 @@ class AuthService extends ChangeNotifier {
         correlationId: reqId,
         stage: 'google_prompt_failed',
       );
+
+      final friendlyMsg = _formatGooglePromptError(e);
+      if (friendlyMsg == null) {
+        // User cancelled the account picker
+        return null;
+      }
+
       throw ApiException(
         statusCode: 0,
-        category: AuthErrorCategory.unknown,
+        category: AuthErrorCategory.http,
         correlationId: reqId,
-        message: 'Google Sign-In prompt failed: $e',
+        message: friendlyMsg,
       );
     }
 
@@ -322,6 +334,46 @@ class AuthService extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(ApiConfig.prefsUserKey);
     } catch (_) {}
+    try {
+      final GoogleSignIn googleSignIn = GoogleSignIn(
+        scopes: const ['email', 'profile'],
+        serverClientId: ApiConfig.googleServerClientId.isNotEmpty
+            ? ApiConfig.googleServerClientId
+            : null,
+      );
+      await googleSignIn.signOut();
+    } catch (_) {}
     notifyListeners();
+  }
+
+  String? _formatGooglePromptError(Object error) {
+    final errStr = error.toString();
+    // 12501 = SIGN_IN_CANCELLED in Google Play Services
+    if (errStr.contains('12501') ||
+        errStr.toLowerCase().contains('cancel')) {
+      return null; // Silent cancellation
+    }
+
+    if (errStr.contains('10:') || errStr.contains('DEVELOPER_ERROR')) {
+      return 'Google Sign-In configuration error (Developer Error 10): Android SHA-1 fingerprint or package name (com.retailsalesinventory.app) does not match Google Cloud Console.';
+    }
+
+    if (errStr.contains('12500')) {
+      return 'Google Sign-In failed (Code 12500): Check Google Cloud OAuth consent screen settings and test users.';
+    }
+
+    if (errStr.contains(': 7:') || errStr.toLowerCase().contains('network_error')) {
+      return 'Network error connecting to Google. Please check your internet connection.';
+    }
+
+    if (error is PlatformException) {
+      final msg = error.message?.trim();
+      if (msg != null && msg.isNotEmpty && !msg.contains('ApiException:')) {
+        return 'Google Sign-In failed: $msg';
+      }
+      return 'Google Sign-In failed (${error.code}).';
+    }
+
+    return 'Google Sign-In failed: $error';
   }
 }

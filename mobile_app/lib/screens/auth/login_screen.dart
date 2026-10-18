@@ -295,7 +295,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               Image.network(
-                                'https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg',
+                                'https://developers.google.com/static/identity/images/g-logo.png',
                                 width: 20,
                                 height: 20,
                                 errorBuilder: (context, error, stackTrace) => const Icon(
