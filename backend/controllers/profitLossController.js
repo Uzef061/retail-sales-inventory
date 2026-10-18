@@ -1,5 +1,6 @@
 const Sale = require('../models/Sale');
 const { getPeriodDetails, buildChartBreakdown } = require('../utils/periodUtils');
+const { getTenantQuery } = require('../utils/tenantHelper');
 
 // GET /api/profit-loss?mode=today|week|month|year|custom&refDate=...&startDate=...&endDate=...
 exports.getProfitLoss = async (req, res) => {
@@ -11,7 +12,9 @@ exports.getProfitLoss = async (req, res) => {
     const periodInfo = getPeriodDetails(mode, refDate, customStart, customEnd);
     const { matchQuery, label, startDate, endDate } = periodInfo;
 
-    const allSales = await Sale.find(matchQuery)
+    const tenantSaleMatch = getTenantQuery(req, matchQuery);
+
+    const allSales = await Sale.find(tenantSaleMatch)
       .populate('items.product', 'name category price costPrice')
       .populate('product', 'name category price costPrice');
 
@@ -21,14 +24,14 @@ exports.getProfitLoss = async (req, res) => {
     const revenue = completedSales.reduce((sum, s) => sum + (Number(s.totalAmount) || Number(s.grandTotal) || 0), 0);
     const cost = completedSales.reduce((sum, s) => sum + (Number(s.totalCostAmount) || 0), 0);
     const grossProfit = revenue - cost;
-    const recordedExpenses = 0; // Transparent: No store expenses tracked yet
+    const recordedExpenses = 0; // Operating expenses tracked transparently
     const profitAfterExpenses = grossProfit - recordedExpenses;
 
     const profit = grossProfit > 0 ? grossProfit : 0;
     const loss = grossProfit < 0 ? Math.abs(grossProfit) : 0;
     const profitMargin = revenue > 0 ? parseFloat(((grossProfit / revenue) * 100).toFixed(2)) : 0;
 
-    // Small best-selling products list (top 5 by units sold)
+    // Best-selling products list (top 5 by units sold)
     const productMap = {};
     for (const s of completedSales) {
       if (Array.isArray(s.items) && s.items.length > 0) {
@@ -99,11 +102,10 @@ exports.getProfitLoss = async (req, res) => {
       profitMargin,
       totalSalesCount: completedSales.length,
       cancelledSalesCount: cancelledSales.length,
-      trendData,
-      bestSellers
+      bestSellers,
+      trendData
     });
   } catch (error) {
-    console.error('Error fetching Profit & Loss data:', error);
-    res.status(500).json({ message: 'Error fetching Profit & Loss data', error: error.message });
+    res.status(500).json({ success: false, message: 'Error calculating profit and loss', error: error.message });
   }
 };

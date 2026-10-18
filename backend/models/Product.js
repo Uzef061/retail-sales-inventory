@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 
 const productSchema = new mongoose.Schema(
   {
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
     name: { type: String, required: true, trim: true },
     category: { type: String, required: true, trim: true },
     costPrice: { type: Number, required: true, min: 0, default: 0 },
@@ -10,7 +11,9 @@ const productSchema = new mongoose.Schema(
     price: {
       type: Number,
       min: 0,
-      get: function() { return this.sellingPrice; }
+      get: function () {
+        return this.sellingPrice;
+      }
     },
     stock: { type: Number, required: true, min: 0, default: 0 },
     reorderLevel: { type: Number, default: 10, min: 0 },

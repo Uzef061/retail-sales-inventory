@@ -1,31 +1,39 @@
 const Sale = require('../models/Sale');
 const Product = require('../models/Product');
+const Purchase = require('../models/Purchase');
+const Customer = require('../models/Customer');
+const Supplier = require('../models/Supplier');
+const PaymentTransaction = require('../models/PaymentTransaction');
 const { getPeriodDetails, buildChartBreakdown } = require('../utils/periodUtils');
+const { getTenantQuery } = require('../utils/tenantHelper');
 
-// GET /api/reports?mode=week|month|year&refDate=2026-10-06
+// GET /api/reports?mode=today|week|month|year|custom&startDate=...&endDate=...&refDate=...
 exports.getReports = async (req, res) => {
   try {
     const mode = req.query.mode || req.query.period || 'week';
     const refDate = req.query.refDate || req.query.date;
+    const { startDate: customStart, endDate: customEnd } = req.query;
 
-    const periodInfo = getPeriodDetails(mode, refDate);
+    const periodInfo = getPeriodDetails(mode, refDate, customStart, customEnd);
     const { matchQuery, label, startDate, endDate } = periodInfo;
 
-    const salesInPeriod = await Sale.find(matchQuery);
+    // 1. SALES REPORT
+    const tenantSaleMatch = getTenantQuery(req, matchQuery);
+    const salesInPeriod = await Sale.find(tenantSaleMatch)
+      .populate('items.product', 'name category price costPrice sellingPrice')
+      .populate('product', 'name category price costPrice sellingPrice');
 
-    const totalSalesAmount = salesInPeriod.reduce((sum, s) => sum + (s.totalAmount || 0), 0);
-    const totalCostAmount = salesInPeriod.reduce((sum, s) => sum + (s.totalCostAmount || 0), 0);
-    const netProfit = salesInPeriod.reduce((sum, s) => sum + (s.profit !== undefined ? s.profit : (s.totalAmount - s.totalCostAmount)), 0);
-
-    const profit = netProfit > 0 ? netProfit : 0;
-    const loss = netProfit < 0 ? Math.abs(netProfit) : 0;
+    const totalSalesAmount = salesInPeriod.reduce((sum, s) => sum + (Number(s.totalAmount) || Number(s.grandTotal) || 0), 0);
+    const totalCostAmount = salesInPeriod.reduce((sum, s) => sum + (Number(s.totalCostAmount) || 0), 0);
+    const netProfit = totalSalesAmount - totalCostAmount;
     const profitMargin = totalSalesAmount > 0 ? parseFloat(((netProfit / totalSalesAmount) * 100).toFixed(2)) : 0;
 
     const salesByDate = buildChartBreakdown(periodInfo.mode, startDate, endDate, salesInPeriod);
 
-    // Best-selling products in period
-    const bestSellingProducts = await Sale.aggregate([
-      { $match: matchQuery },
+    // 2. PRODUCT REPORT
+    const topProdMatch = getTenantQuery(req, matchQuery);
+    const bestSellingAggregation = await Sale.aggregate([
+      { $match: topProdMatch },
       {
         $group: {
           _id: '$product',
@@ -58,9 +66,8 @@ exports.getReports = async (req, res) => {
       }
     ]);
 
-    // Sales by Category in period
     const salesByCategory = await Sale.aggregate([
-      { $match: matchQuery },
+      { $match: topProdMatch },
       {
         $lookup: {
           from: 'products',
@@ -80,27 +87,77 @@ exports.getReports = async (req, res) => {
       { $sort: { totalRevenue: -1 } }
     ]);
 
-    const lowStockProducts = await Product.find({ stock: { $lte: 10 } }).sort({ stock: 1 });
+    // 3. INVENTORY REPORT
+    const prodQuery = getTenantQuery(req, { isActive: { $ne: false } });
+    const allProducts = await Product.find(prodQuery);
+    const totalProducts = allProducts.length;
+    const totalStock = allProducts.reduce((sum, p) => sum + (Number(p.stock) || 0), 0);
+    const inventoryValuation = allProducts.reduce((sum, p) => sum + ((Number(p.stock) || 0) * (Number(p.costPrice) || 0)), 0);
+    const lowStockProducts = allProducts.filter(p => p.stock <= (p.reorderLevel || 10));
+
+    // 4. PURCHASE REPORT
+    const purchaseDateMatch = {};
+    if (startDate) purchaseDateMatch.$gte = startDate;
+    if (endDate) purchaseDateMatch.$lte = endDate;
+    const purchaseQuery = getTenantQuery(req, Object.keys(purchaseDateMatch).length ? { purchaseDate: purchaseDateMatch } : {});
+    const purchasesInPeriod = await Purchase.find(purchaseQuery).populate('supplier', 'name');
+
+    const totalPurchasesAmount = purchasesInPeriod.reduce((sum, p) => sum + (Number(p.totalCost) || 0), 0);
+    const purchasesCount = purchasesInPeriod.length;
+
+    // 5. PARTY & CASH FLOW REPORT (RECEIVE / GIVE)
+    const paymentDateMatch = {};
+    if (startDate) paymentDateMatch.$gte = startDate;
+    if (endDate) paymentDateMatch.$lte = endDate;
+    const paymentQuery = getTenantQuery(req, Object.keys(paymentDateMatch).length ? { transactionDate: paymentDateMatch } : {});
+    const paymentsInPeriod = await PaymentTransaction.find(paymentQuery);
+
+    const totalReceived = paymentsInPeriod.filter(p => p.type === 'RECEIVE').reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+    const totalGiven = paymentsInPeriod.filter(p => p.type === 'GIVE').reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+
+    const customerCount = await Customer.countDocuments(getTenantQuery(req, { isActive: true }));
+    const supplierCount = await Supplier.countDocuments(getTenantQuery(req, { isActive: true }));
 
     res.status(200).json({
       mode: periodInfo.mode,
       refDate: periodInfo.refDate.toISOString(),
       label,
-      startDate,
-      endDate,
+      startDate: startDate.toISOString ? startDate.toISOString() : startDate,
+      endDate: endDate.toISOString ? endDate.toISOString() : endDate,
+
+      // Sales Overview
       totalSalesAmount,
+      totalSalesCount: salesInPeriod.length,
       totalCostAmount,
       netProfit,
-      profit,
-      loss,
+      profit: netProfit > 0 ? netProfit : 0,
+      loss: netProfit < 0 ? Math.abs(netProfit) : 0,
       profitMargin,
-      totalSalesCount: salesInPeriod.length,
       salesByDate,
-      bestSellingProducts,
+
+      // Product Analytics
+      bestSellingProducts: bestSellingAggregation,
       salesByCategory,
-      lowStockProducts
+
+      // Inventory Metrics
+      totalProducts,
+      totalStock,
+      inventoryValuation,
+      lowStockProducts,
+      lowStockCount: lowStockProducts.length,
+
+      // Purchases
+      totalPurchasesAmount,
+      purchasesCount,
+
+      // Parties & Cashflow
+      customerCount,
+      supplierCount,
+      totalReceived,
+      totalGiven,
+      netCashFlow: totalReceived - totalGiven
     });
   } catch (error) {
-    res.status(500).json({ message: 'Error generating reports', error: error.message });
+    res.status(500).json({ success: false, message: 'Error generating reports', error: error.message });
   }
 };

@@ -17,6 +17,7 @@ class AuthService extends ChangeNotifier {
   User? get currentUser => _currentUser;
   bool get isLoggedIn => _currentUser != null;
   bool get isInitialized => _initialized;
+  bool get hasCompletedOnboarding => _currentUser?.hasCompletedOnboarding ?? false;
 
   Future<void> init() async {
     await _apiClient.init();
@@ -45,7 +46,6 @@ class AuthService extends ChangeNotifier {
   Future<User> login(String username, String password) async {
     final reqId = 'login_${DateTime.now().millisecondsSinceEpoch.toRadixString(36)}';
 
-    // 1. Validation stage
     AuthLogger.logStage(
       correlationId: reqId,
       stage: 'validation',
@@ -61,7 +61,6 @@ class AuthService extends ChangeNotifier {
       );
     }
 
-    // 2. Request stage
     final response = await _apiClient.post(
       ApiConfig.authLogin,
       {
@@ -71,7 +70,38 @@ class AuthService extends ChangeNotifier {
       reqId,
     );
 
-    // 3. Response validation & parsing stage
+    return _processAuthResponse(response, reqId, fallbackUsername: cleanUsername);
+  }
+
+  Future<User> loginWithGoogle(String idToken) async {
+    final reqId = 'google_login_${DateTime.now().millisecondsSinceEpoch.toRadixString(36)}';
+
+    AuthLogger.logStage(
+      correlationId: reqId,
+      stage: 'google_token_validation',
+    );
+
+    if (idToken.trim().isEmpty) {
+      throw ApiException(
+        statusCode: 400,
+        category: AuthErrorCategory.http,
+        correlationId: reqId,
+        message: 'Google identification token is empty.',
+      );
+    }
+
+    final response = await _apiClient.post(
+      ApiConfig.authGoogle,
+      {
+        'idToken': idToken.trim(),
+      },
+      reqId,
+    );
+
+    return _processAuthResponse(response, reqId, fallbackUsername: 'google_user');
+  }
+
+  Future<User> _processAuthResponse(dynamic response, String reqId, {required String fallbackUsername}) async {
     AuthLogger.logStage(
       correlationId: reqId,
       stage: 'parsing',
@@ -89,7 +119,6 @@ class AuthService extends ChangeNotifier {
 
     final respMap = Map<String, dynamic>.from(response);
 
-    // If response explicitly indicates failure
     if (respMap.containsKey('success') && respMap['success'] == false) {
       final msg = respMap['message']?.toString() ?? 'Login was rejected by the server.';
       throw ApiException(
@@ -101,7 +130,6 @@ class AuthService extends ChangeNotifier {
       );
     }
 
-    // Validate that a non-empty token exists
     final token = respMap['token']?.toString();
     if (token == null || token.trim().isEmpty) {
       throw ApiException(
@@ -117,7 +145,7 @@ class AuthService extends ChangeNotifier {
     if (respMap['user'] is Map) {
       user = User.fromJson(Map<String, dynamic>.from(respMap['user'] as Map));
     } else {
-      final uName = respMap['username']?.toString() ?? cleanUsername;
+      final uName = respMap['username']?.toString() ?? fallbackUsername;
       user = User(
         id: 'user_${DateTime.now().millisecondsSinceEpoch}',
         username: uName,
@@ -126,7 +154,6 @@ class AuthService extends ChangeNotifier {
       );
     }
 
-    // 4. Token & user persistence stage
     AuthLogger.logStage(
       correlationId: reqId,
       stage: 'token_persistence',
@@ -164,6 +191,49 @@ class AuthService extends ChangeNotifier {
 
     notifyListeners();
     return user;
+  }
+
+  Future<void> completeOnboarding({
+    String? businessName,
+    String? category,
+    String? phone,
+    String? currency,
+    String? ownerName,
+  }) async {
+    final reqId = 'onboarding_${DateTime.now().millisecondsSinceEpoch.toRadixString(36)}';
+    try {
+      await _apiClient.put(
+        ApiConfig.authOnboarding,
+        {
+          'hasCompletedOnboarding': true,
+          if (businessName != null) 'businessName': businessName,
+          if (category != null) 'category': category,
+          if (phone != null) 'phone': phone,
+          if (currency != null) 'currency': currency,
+          if (ownerName != null) 'ownerName': ownerName,
+        },
+        reqId,
+      );
+    } catch (e) {
+      debugPrint('[AUTH] Server onboarding update failed: $e. Proceeding locally.');
+    }
+
+    if (_currentUser != null) {
+      _currentUser = User(
+        id: _currentUser!.id,
+        username: _currentUser!.username,
+        name: ownerName?.isNotEmpty == true ? ownerName! : _currentUser!.name,
+        role: _currentUser!.role,
+        email: _currentUser!.email,
+        avatar: _currentUser!.avatar,
+        hasCompletedOnboarding: true,
+        businessId: _currentUser!.businessId,
+      );
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(ApiConfig.prefsUserKey, jsonEncode(_currentUser!.toJson()));
+      notifyListeners();
+    }
   }
 
   Future<void> logout() async {

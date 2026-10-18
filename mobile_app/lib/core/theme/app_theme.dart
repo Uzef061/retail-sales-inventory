@@ -18,6 +18,9 @@ class AppTheme {
   static const Color warningLight = Color(0xFFFEF3C7);
   static const Color error = Color(0xFFDC2626);
   static const Color errorLight = Color(0xFFFEE2E2);
+  static const Color accent = primary;
+  static const Color cardBorder = dividerColor;
+  static const Color cardBackground = surface;
 
   static ThemeData get lightTheme {
     return ThemeData(

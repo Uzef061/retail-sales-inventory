@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../core/services/auth_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../auth/login_screen.dart';
+import '../onboarding/onboarding_screen.dart';
 import '../main_navigation_screen.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -85,9 +86,14 @@ class _SplashScreenState extends State<SplashScreen>
     if (!mounted) return;
 
     // 3. Navigate with smooth fade transition
-    final targetScreen = widget.authService.isLoggedIn
-        ? const MainNavigationScreen()
-        : const LoginScreen();
+    final Widget targetScreen;
+    if (widget.authService.isLoggedIn) {
+      targetScreen = widget.authService.hasCompletedOnboarding
+          ? const MainNavigationScreen()
+          : const OnboardingScreen();
+    } else {
+      targetScreen = const LoginScreen();
+    }
 
     Navigator.of(context).pushReplacement(
       PageRouteBuilder(

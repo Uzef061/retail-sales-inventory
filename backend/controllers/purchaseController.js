@@ -3,11 +3,13 @@ const Purchase = require('../models/Purchase');
 const Product = require('../models/Product');
 const Supplier = require('../models/Supplier');
 const InventoryTransaction = require('../models/InventoryTransaction');
+const { getTenantQuery, hasTenantAccess } = require('../utils/tenantHelper');
 
 // GET /api/purchases
 exports.getPurchases = async (req, res) => {
   try {
-    const purchases = await Purchase.find()
+    const query = getTenantQuery(req);
+    const purchases = await Purchase.find(query)
       .populate('supplier', 'name phone email contactPerson companyName')
       .populate('product', 'name category costPrice sellingPrice stock')
       .populate('createdById', 'name username')
@@ -70,22 +72,22 @@ exports.createPurchase = async (req, res) => {
     const sessionOption = useSession && session ? { session } : {};
 
     const targetProduct = await Product.findById(targetProductId, null, sessionOption);
-    if (!targetProduct || targetProduct.isActive === false) {
+    if (!targetProduct || targetProduct.isActive === false || !hasTenantAccess(targetProduct, req)) {
       if (useSession && session) {
         await session.abortTransaction();
         session.endSession();
       }
-      return res.status(404).json({ success: false, message: 'Active product not found.' });
+      return res.status(404).json({ success: false, message: 'Active product not found or unauthorized.' });
     }
 
     if (targetSupplierId) {
       const targetSupplier = await Supplier.findById(targetSupplierId, null, sessionOption);
-      if (!targetSupplier) {
+      if (!targetSupplier || !hasTenantAccess(targetSupplier, req)) {
         if (useSession && session) {
           await session.abortTransaction();
           session.endSession();
         }
-        return res.status(404).json({ success: false, message: 'Supplier not found.' });
+        return res.status(404).json({ success: false, message: 'Supplier not found or unauthorized.' });
       }
     }
 
@@ -112,6 +114,7 @@ exports.createPurchase = async (req, res) => {
 
     // 2. Create Purchase Record
     const purchase = new Purchase({
+      userId: req.user?._id,
       supplier: targetSupplierId || undefined,
       product: targetProductId,
       quantity: qty,
@@ -129,6 +132,7 @@ exports.createPurchase = async (req, res) => {
     await InventoryTransaction.create(
       [
         {
+          userId: req.user?._id,
           product: targetProduct._id,
           type: 'PURCHASE',
           quantity: qty,

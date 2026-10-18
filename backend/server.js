@@ -28,6 +28,11 @@ const smartInventoryRoutes = require('./routes/smartInventory');
 const dashboardRoutes = require('./routes/dashboard');
 const reportRoutes = require('./routes/reports');
 const profitLossRoutes = require('./routes/profitLoss');
+const businessProfileRoutes = require('./routes/businessProfile');
+const paymentRoutes = require('./routes/payments');
+const reminderRoutes = require('./routes/reminders');
+const noteRoutes = require('./routes/notes');
+const notificationRoutes = require('./routes/notifications');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -48,6 +53,11 @@ app.use('/api/smart-inventory', smartInventoryRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/profit-loss', profitLossRoutes);
+app.use('/api/business-profile', businessProfileRoutes);
+app.use('/api/payments', paymentRoutes);
+app.use('/api/reminders', reminderRoutes);
+app.use('/api/notes', noteRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 // Secure Demo Reset Endpoint for Viva Demo
 const handleDemoReset = async (req, res) => {

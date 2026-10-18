@@ -2,6 +2,11 @@ const mongoose = require('mongoose');
 
 const purchaseSchema = new mongoose.Schema(
   {
+    userId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      index: true
+    },
     supplier: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Supplier',

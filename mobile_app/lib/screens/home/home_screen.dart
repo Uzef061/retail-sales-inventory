@@ -3,11 +3,17 @@ import 'package:intl/intl.dart';
 import '../../core/config/api_config.dart';
 import '../../core/services/api_client.dart';
 import '../../core/services/auth_service.dart';
+import '../../core/services/notification_service.dart';
+import '../../core/services/payment_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../models/dashboard_data.dart';
+import '../../models/payment_transaction.dart';
+import '../more/notifications_screen.dart';
 import '../more/purchases_screen.dart';
+import '../more/reports_screen.dart';
 import '../sales/sale_receipt_dialog.dart';
 import '../stock/add_product_dialog.dart';
+import 'receive_give_dialog.dart';
 
 class HomeScreen extends StatefulWidget {
   final Function(int tabIndex) onNavigateTab;
@@ -20,7 +26,12 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final ApiClient _apiClient = ApiClient();
+  final NotificationService _notificationService = NotificationService();
+  final PaymentService _paymentService = PaymentService();
+
   DashboardData? _dashboardData;
+  PaymentSummary? _paymentSummary;
+  int _unreadNotifCount = 0;
   bool _isLoading = true;
   String? _errorMessage;
 
@@ -39,26 +50,38 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       final res = await _apiClient.get(ApiConfig.dashboard);
       if (res is Map<String, dynamic>) {
+        _dashboardData = DashboardData.fromJson(res);
+      }
+
+      // Load Payment Summary & Notifications in parallel
+      try {
+        _paymentSummary = await _paymentService.getSummary();
+      } catch (_) {}
+
+      try {
+        final notifResult = await _notificationService.getNotifications();
+        _unreadNotifCount = notifResult.unreadCount;
+      } catch (_) {}
+
+      if (mounted) {
         setState(() {
-          _dashboardData = DashboardData.fromJson(res);
-          _isLoading = false;
-        });
-      } else {
-        setState(() {
-          _errorMessage = 'Invalid dashboard response';
           _isLoading = false;
         });
       }
     } on ApiException catch (e) {
-      setState(() {
-        _errorMessage = e.message;
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _errorMessage = e.message;
+          _isLoading = false;
+        });
+      }
     } catch (_) {
-      setState(() {
-        _errorMessage = 'Could not connect to server.';
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'Could not connect to server.';
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -67,6 +90,18 @@ class _HomeScreenState extends State<HomeScreen> {
       context: context,
       builder: (_) => AddProductDialog(
         onSaved: _loadDashboard,
+      ),
+    );
+  }
+
+  void _openReceiveGiveDialog(String type) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => ReceiveGiveDialog(
+        type: type,
+        onSuccess: _loadDashboard,
       ),
     );
   }
@@ -82,16 +117,54 @@ class _HomeScreenState extends State<HomeScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Retail Sales & Inventory',
+              'Retail Manager',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppTheme.textPrimary),
             ),
             Text(
-              'Welcome, ${user?.name ?? "Operator"}',
+              'Welcome, ${user?.name ?? "Shopkeeper"}',
               style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary, fontWeight: FontWeight.normal),
             ),
           ],
         ),
         actions: [
+          // Notification Bell with unread counter
+          Stack(
+            alignment: Alignment.center,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.notifications_outlined),
+                tooltip: 'Notifications',
+                onPressed: () async {
+                  await Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const NotificationsScreen()),
+                  );
+                  _loadDashboard();
+                },
+              ),
+              if (_unreadNotifCount > 0)
+                Positioned(
+                  right: 8,
+                  top: 8,
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: const BoxDecoration(
+                      color: AppTheme.error,
+                      shape: BoxShape.circle,
+                    ),
+                    constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                    child: Text(
+                      _unreadNotifCount > 9 ? '9+' : '$_unreadNotifCount',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 9,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _loadDashboard,
@@ -135,7 +208,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     final d = _dashboardData!;
-    final dateFormat = DateFormat('hh:mm a');
+    final isNewEmptyStore = d.totalProducts == 0 && d.recentSales.isEmpty;
 
     return RefreshIndicator(
       onRefresh: _loadDashboard,
@@ -143,7 +216,188 @@ class _HomeScreenState extends State<HomeScreen> {
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          // 1. Karobar-inspired Today's Performance Card
+          // Contextual Empty State for genuinely new accounts
+          if (isNewEmptyStore) ...[
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: AppTheme.primaryLight,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: AppTheme.primary.withValues(alpha: 0.3)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Row(
+                    children: [
+                      Icon(Icons.celebration_rounded, color: AppTheme.primary, size: 24),
+                      SizedBox(width: 8),
+                      Text(
+                        'Welcome to your new store!',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                          color: AppTheme.textPrimary,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Your workspace is ready. Start by adding your first product to inventory or record cash in/out transactions.',
+                    style: TextStyle(fontSize: 13, color: AppTheme.textSecondary, height: 1.4),
+                  ),
+                  const SizedBox(height: 16),
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: [
+                      ElevatedButton.icon(
+                        onPressed: _openAddProduct,
+                        icon: const Icon(Icons.add, size: 18),
+                        label: const Text('Add First Product'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.primary,
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                        ),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: () => _openReceiveGiveDialog('RECEIVE'),
+                        icon: const Icon(Icons.arrow_downward, size: 18, color: AppTheme.success),
+                        label: const Text('Receive Cash', style: TextStyle(color: AppTheme.success)),
+                        style: OutlinedButton.styleFrom(
+                          side: const BorderSide(color: AppTheme.success),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+
+          // 1. Prominent Receive & Give Karobar Buttons
+          Row(
+            children: [
+              // RECEIVE BUTTON (Cash In)
+              Expanded(
+                child: InkWell(
+                  onTap: () => _openReceiveGiveDialog('RECEIVE'),
+                  borderRadius: BorderRadius.circular(16),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE8F5E9),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: const Color(0xFF81C784)),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.green.withValues(alpha: 0.08),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: const BoxDecoration(
+                            color: Color(0xFF2E7D32),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.arrow_downward_rounded, color: Colors.white, size: 20),
+                        ),
+                        const SizedBox(width: 10),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'RECEIVE',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w900,
+                                  color: Color(0xFF1B5E20),
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                              Text(
+                                'Cash In / Customer',
+                                style: TextStyle(fontSize: 11, color: Color(0xFF2E7D32)),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+
+              // GIVE BUTTON (Cash Out)
+              Expanded(
+                child: InkWell(
+                  onTap: () => _openReceiveGiveDialog('GIVE'),
+                  borderRadius: BorderRadius.circular(16),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFBE9E7),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: const Color(0xFFFF8A65)),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.deepOrange.withValues(alpha: 0.08),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: const BoxDecoration(
+                            color: Color(0xFFD84315),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.arrow_upward_rounded, color: Colors.white, size: 20),
+                        ),
+                        const SizedBox(width: 10),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'GIVE',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w900,
+                                  color: Color(0xFFBF360C),
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                              Text(
+                                'Cash Out / Supplier',
+                                style: TextStyle(fontSize: 11, color: Color(0xFFD84315)),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // 2. Today's Performance Card
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
@@ -214,7 +468,77 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           const SizedBox(height: 20),
 
-          // 2. Karobar-inspired Quick Action Buttons
+          // 3. Karobar Cashflow Summary (if recorded)
+          if (_paymentSummary != null && (_paymentSummary!.totalReceived > 0 || _paymentSummary!.totalGiven > 0)) ...[
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: AppTheme.cardBackground,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: AppTheme.cardBorder),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'CASH FLOW SUMMARY',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      color: AppTheme.textMuted,
+                      letterSpacing: 0.8,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Total Received (In)', style: TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
+                          const SizedBox(height: 4),
+                          Text(
+                            '+₹${_paymentSummary!.totalReceived.toStringAsFixed(0)}',
+                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Color(0xFF2E7D32)),
+                          ),
+                        ],
+                      ),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Total Given (Out)', style: TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
+                          const SizedBox(height: 4),
+                          Text(
+                            '-₹${_paymentSummary!.totalGiven.toStringAsFixed(0)}',
+                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Color(0xFFD84315)),
+                          ),
+                        ],
+                      ),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Net Cash Flow', style: TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
+                          const SizedBox(height: 4),
+                          Text(
+                            '₹${_paymentSummary!.netCashFlow.toStringAsFixed(0)}',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w800,
+                              color: _paymentSummary!.netCashFlow >= 0 ? const Color(0xFF2E7D32) : const Color(0xFFD84315),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+          ],
+
+          // 4. Quick Actions Grid
           const Text(
             'QUICK ACTIONS',
             style: TextStyle(
@@ -238,6 +562,15 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(width: 10),
               Expanded(
                 child: _buildActionTile(
+                  icon: Icons.add_box_outlined,
+                  label: 'Add Item',
+                  color: AppTheme.accent,
+                  onTap: _openAddProduct,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _buildActionTile(
                   icon: Icons.local_shipping_outlined,
                   label: 'Restock',
                   color: const Color(0xFF2563EB),
@@ -251,174 +584,140 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(width: 10),
               Expanded(
                 child: _buildActionTile(
-                  icon: Icons.add_box_outlined,
-                  label: 'Add Product',
-                  color: const Color(0xFF059669),
-                  onTap: _openAddProduct,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _buildActionTile(
-                  icon: Icons.inventory_2_outlined,
-                  label: 'View Stock',
-                  color: AppTheme.secondary,
-                  onTap: () => widget.onNavigateTab(2), // Stock tab
+                  icon: Icons.bar_chart_rounded,
+                  label: 'Reports',
+                  color: const Color(0xFF7C3AED),
+                  onTap: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const ReportsScreen()),
+                    );
+                  },
                 ),
               ),
             ],
           ),
           const SizedBox(height: 24),
 
-          // 3. Automated Insight Banner (if any)
-          if (d.insights.isNotEmpty) ...[
+          // 5. Low Stock Alert Banner
+          if (d.lowStockCount > 0) ...[
             Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: AppTheme.surface,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: AppTheme.dividerColor),
+                color: const Color(0xFFFFF7ED),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFFFDBA74)),
               ),
               child: Row(
                 children: [
-                  Text(d.insights.first.icon, style: const TextStyle(fontSize: 22)),
+                  const Icon(Icons.warning_amber_rounded, color: Color(0xFFEA580C), size: 24),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: Text(
-                      d.insights.first.message,
-                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: AppTheme.textPrimary),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${d.lowStockCount} items need restocking',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF9A3412),
+                          ),
+                        ),
+                        Text(
+                          d.lowStockProducts.map((p) => p.name).take(2).join(', '),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 11, color: Color(0xFFC2410C)),
+                        ),
+                      ],
                     ),
+                  ),
+                  TextButton(
+                    onPressed: () => widget.onNavigateTab(2), // Stock tab
+                    child: const Text('View Stock', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 20),
           ],
 
-          // 4. Low Stock Alerts (if lowStockProducts > 0)
-          if (d.lowStockProducts.isNotEmpty) ...[
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Row(
-                  children: [
-                    Icon(Icons.warning_amber_rounded, size: 18, color: AppTheme.warning),
-                    SizedBox(width: 6),
-                    Text(
-                      'Low Stock Alert',
-                      style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppTheme.textPrimary),
-                    ),
-                  ],
-                ),
-                TextButton(
-                  onPressed: () => widget.onNavigateTab(2),
-                  child: const Text('View All Stock'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            SizedBox(
-              height: 100,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                itemCount: d.lowStockProducts.length,
-                separatorBuilder: (_, _) => const SizedBox(width: 10),
-                itemBuilder: (context, idx) {
-                  final p = d.lowStockProducts[idx];
-                  return Container(
-                    width: 170,
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: AppTheme.warningLight,
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: AppTheme.warning.withValues(alpha: 0.3)),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          p.name,
-                          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Only ${p.stock} units left',
-                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.warning),
-                        ),
-                        Text(
-                          '₹${p.sellingPrice.toStringAsFixed(0)} selling',
-                          style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              ),
-            ),
-            const SizedBox(height: 24),
-          ],
-
-          // 5. Recent Sales Section
+          // 6. Recent Sales Section
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text(
-                'Recent Sales',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppTheme.textPrimary),
+                'RECENT TRANSACTIONS',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                  color: AppTheme.textMuted,
+                  letterSpacing: 0.8,
+                ),
               ),
               TextButton(
-                onPressed: () => widget.onNavigateTab(1), // Switch to Sales tab
-                child: const Text('View All Sales'),
+                onPressed: () => widget.onNavigateTab(1),
+                child: const Text('View All Sales', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
 
           if (d.recentSales.isEmpty)
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Center(
-                  child: Text('No sales recorded today yet', style: TextStyle(color: AppTheme.textSecondary)),
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: AppTheme.cardBackground,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: AppTheme.cardBorder),
+              ),
+              child: const Center(
+                child: Text(
+                  'No recent sales recorded yet.',
+                  style: TextStyle(color: AppTheme.textMuted, fontSize: 13),
                 ),
               ),
             )
           else
-            ...d.recentSales.map((s) {
+            ...d.recentSales.map((sale) {
               return Card(
                 margin: const EdgeInsets.only(bottom: 8),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  side: const BorderSide(color: AppTheme.cardBorder),
+                ),
+                elevation: 0,
                 child: ListTile(
                   dense: true,
+                  leading: CircleAvatar(
+                    backgroundColor: AppTheme.primaryLight,
+                    child: const Icon(Icons.receipt_long, color: AppTheme.primary, size: 18),
+                  ),
+                  title: Text(
+                    sale.customerName,
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                  ),
+                  subtitle: Text(
+                    DateFormat('dd MMM, hh:mm a').format(sale.saleDate),
+                    style: const TextStyle(fontSize: 11, color: AppTheme.textMuted),
+                  ),
+                  trailing: Text(
+                    '₹${sale.grandTotal.toStringAsFixed(0)}',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 14,
+                      color: AppTheme.textPrimary,
+                    ),
+                  ),
                   onTap: () {
                     showDialog(
                       context: context,
-                      builder: (_) => SaleReceiptDialog(sale: s),
+                      builder: (_) => SaleReceiptDialog(sale: sale),
                     );
                   },
-                  leading: CircleAvatar(
-                    radius: 18,
-                    backgroundColor: AppTheme.primaryLight,
-                    child: const Icon(Icons.receipt, size: 18, color: AppTheme.primary),
-                  ),
-                  title: Text(
-                    s.customerName,
-                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
-                  ),
-                  subtitle: Text(
-                    '${s.invoiceNumber} • ${dateFormat.format(s.saleDate)} • ${s.paymentMethod}',
-                    style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary),
-                  ),
-                  trailing: Text(
-                    '₹${s.grandTotal.toStringAsFixed(0)}',
-                    style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: AppTheme.textPrimary),
-                  ),
                 ),
               );
             }),
-          const SizedBox(height: 20),
         ],
       ),
     );
@@ -428,14 +727,17 @@ class _HomeScreenState extends State<HomeScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: const TextStyle(fontSize: 11, color: Colors.white70)),
+        Text(
+          label,
+          style: const TextStyle(fontSize: 11, color: Colors.white70),
+        ),
         const SizedBox(height: 2),
         Text(
           value,
           style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w700,
-            color: isAlert ? const Color(0xFFFDE047) : Colors.white,
+            fontSize: 14,
+            fontWeight: FontWeight.bold,
+            color: isAlert ? const Color(0xFFFFD54F) : Colors.white,
           ),
         ),
       ],
@@ -450,30 +752,20 @@ class _HomeScreenState extends State<HomeScreen> {
   }) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(12),
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
+        padding: const EdgeInsets.symmetric(vertical: 12),
         decoration: BoxDecoration(
-          color: AppTheme.surface,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppTheme.dividerColor),
+          color: AppTheme.cardBackground,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppTheme.cardBorder),
         ),
         child: Column(
-          mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.12),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(icon, color: color, size: 20),
-            ),
-            const SizedBox(height: 8),
+            Icon(icon, color: color, size: 22),
+            const SizedBox(height: 6),
             Text(
               label,
-              textAlign: TextAlign.center,
               style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.textPrimary),
             ),
           ],

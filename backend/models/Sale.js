@@ -16,6 +16,11 @@ const saleItemSchema = new mongoose.Schema({
 
 const saleSchema = new mongoose.Schema(
   {
+    userId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      index: true
+    },
     invoiceNumber: { type: String, unique: true, sparse: true },
     customer: {
       type: mongoose.Schema.Types.ObjectId,

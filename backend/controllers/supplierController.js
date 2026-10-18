@@ -1,19 +1,26 @@
 const Supplier = require('../models/Supplier');
 const Purchase = require('../models/Purchase');
+const { getTenantQuery, hasTenantAccess } = require('../utils/tenantHelper');
 
 // GET /api/suppliers
 exports.getSuppliers = async (req, res) => {
   try {
     const { search, activeOnly } = req.query;
-    let query = {};
+    let query = getTenantQuery(req);
+
     if (activeOnly === 'true') {
       query.isActive = true;
     }
     if (search) {
-      query.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { contactPerson: { $regex: search, $options: 'i' } },
-        { phone: { $regex: search, $options: 'i' } }
+      query.$and = [
+        ...(query.$and || []),
+        {
+          $or: [
+            { name: { $regex: search, $options: 'i' } },
+            { contactPerson: { $regex: search, $options: 'i' } },
+            { phone: { $regex: search, $options: 'i' } }
+          ]
+        }
       ];
     }
     const suppliers = await Supplier.find(query).sort({ createdAt: -1 });
@@ -36,6 +43,7 @@ exports.createSupplier = async (req, res) => {
     }
 
     const supplier = new Supplier({
+      userId: req.user?._id,
       name: name.trim(),
       phone: phone.trim(),
       email: email ? email.trim() : '',
@@ -55,28 +63,25 @@ exports.createSupplier = async (req, res) => {
 exports.updateSupplier = async (req, res) => {
   try {
     const { id } = req.params;
+    const supplier = await Supplier.findById(id);
+    if (!supplier || !hasTenantAccess(supplier, req)) {
+      return res.status(404).json({ success: false, message: 'Supplier not found' });
+    }
+
     const { name, phone, email, address, contactPerson, isActive } = req.body;
 
     if (!name || !name.trim()) {
       return res.status(400).json({ success: false, message: 'Supplier name is required.' });
     }
 
-    const updatedSupplier = await Supplier.findByIdAndUpdate(
-      id,
-      {
-        name: name.trim(),
-        phone: phone.trim(),
-        email: email ? email.trim() : '',
-        address: address ? address.trim() : '',
-        contactPerson: contactPerson ? contactPerson.trim() : '',
-        isActive: isActive !== undefined ? Boolean(isActive) : true
-      },
-      { new: true, runValidators: true }
-    );
+    supplier.name = name.trim();
+    if (phone !== undefined) supplier.phone = phone.trim();
+    if (email !== undefined) supplier.email = email.trim();
+    if (address !== undefined) supplier.address = address.trim();
+    if (contactPerson !== undefined) supplier.contactPerson = contactPerson.trim();
+    if (isActive !== undefined) supplier.isActive = Boolean(isActive);
 
-    if (!updatedSupplier) {
-      return res.status(404).json({ success: false, message: 'Supplier not found' });
-    }
+    const updatedSupplier = await supplier.save();
     res.status(200).json(updatedSupplier);
   } catch (error) {
     res.status(500).json({ success: false, message: 'Error updating supplier', error: error.message });
@@ -88,7 +93,7 @@ exports.deleteSupplier = async (req, res) => {
   try {
     const { id } = req.params;
     const supplier = await Supplier.findById(id);
-    if (!supplier) {
+    if (!supplier || !hasTenantAccess(supplier, req)) {
       return res.status(404).json({ success: false, message: 'Supplier not found' });
     }
 

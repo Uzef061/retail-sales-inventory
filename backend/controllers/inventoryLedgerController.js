@@ -1,10 +1,11 @@
 const InventoryTransaction = require('../models/InventoryTransaction');
+const { getTenantQuery } = require('../utils/tenantHelper');
 
 // GET /api/inventory/ledger
 exports.getInventoryLedger = async (req, res) => {
   try {
     const { product, type, startDate, endDate } = req.query;
-    let query = {};
+    let query = getTenantQuery(req);
 
     if (product) {
       query.product = product;

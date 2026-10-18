@@ -2,6 +2,7 @@ const Product = require('../models/Product');
 const Sale = require('../models/Sale');
 const Purchase = require('../models/Purchase');
 const { getPeriodDetails, buildChartBreakdown } = require('../utils/periodUtils');
+const { getTenantQuery } = require('../utils/tenantHelper');
 
 // GET /api/dashboard?mode=week|month|year&refDate=2026-10-06
 exports.getDashboardData = async (req, res) => {
@@ -13,11 +14,13 @@ exports.getDashboardData = async (req, res) => {
     const { matchQuery, label, startDate, endDate } = periodInfo;
 
     // 1. Total Active Products
-    const totalProducts = await Product.countDocuments({ isActive: { $ne: false } });
+    const prodQuery = getTenantQuery(req, { isActive: { $ne: false } });
+    const totalProducts = await Product.countDocuments(prodQuery);
 
     // 2. Total Stock
+    const stockQuery = getTenantQuery(req, { isActive: { $ne: false } });
     const stockAggregation = await Product.aggregate([
-      { $match: { isActive: { $ne: false } } },
+      { $match: stockQuery },
       { $group: { _id: null, totalStock: { $sum: '$stock' } } }
     ]);
     const totalStock = stockAggregation.length > 0 ? stockAggregation[0].totalStock : 0;
@@ -26,8 +29,13 @@ exports.getDashboardData = async (req, res) => {
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
 
+    const todaysSalesQuery = getTenantQuery(req, {
+      saleDate: { $gte: startOfToday },
+      status: { $ne: 'CANCELLED' }
+    });
+
     const todaysSalesAggregation = await Sale.aggregate([
-      { $match: { saleDate: { $gte: startOfToday }, status: { $ne: 'CANCELLED' } } },
+      { $match: todaysSalesQuery },
       {
         $group: {
           _id: null,
@@ -40,18 +48,21 @@ exports.getDashboardData = async (req, res) => {
     const todaysSalesCount = todaysSalesAggregation.length > 0 ? todaysSalesAggregation[0].todayCount : 0;
 
     // 4. Low Stock Products
-    const lowStockProducts = await Product.find({ stock: { $lte: 10 }, isActive: { $ne: false } }).sort({ stock: 1 });
+    const lowStockQuery = getTenantQuery(req, { stock: { $lte: 10 }, isActive: { $ne: false } });
+    const lowStockProducts = await Product.find(lowStockQuery).sort({ stock: 1 });
     const lowStockCount = lowStockProducts.length;
 
     // 5. Financials for selected period (matchQuery excludes CANCELLED)
-    const salesInPeriod = await Sale.find(matchQuery);
+    const periodSalesQuery = getTenantQuery(req, matchQuery);
+    const salesInPeriod = await Sale.find(periodSalesQuery);
 
     const totalSalesAmount = salesInPeriod.reduce((sum, s) => sum + (s.totalAmount || 0), 0);
     const totalCostAmount = salesInPeriod.reduce((sum, s) => sum + (s.totalCostAmount || 0), 0);
     const netProfit = salesInPeriod.reduce((sum, s) => sum + (s.profit !== undefined ? s.profit : (s.totalAmount - s.totalCostAmount)), 0);
 
     // 6. Recent Sales (Top 5 overall)
-    const recentSales = await Sale.find()
+    const recentSalesQuery = getTenantQuery(req);
+    const recentSales = await Sale.find(recentSalesQuery)
       .populate('customer', 'name email phone')
       .populate('product', 'name price sellingPrice costPrice')
       .populate('items.product', 'name price sellingPrice costPrice')
@@ -59,21 +70,23 @@ exports.getDashboardData = async (req, res) => {
       .limit(5);
 
     // 7. Recent Purchases (Top 5 overall)
-    const recentPurchases = await Purchase.find()
+    const recentPurchasesQuery = getTenantQuery(req);
+    const recentPurchases = await Purchase.find(recentPurchasesQuery)
       .populate('supplier', 'name phone contactPerson')
       .populate('product', 'name category costPrice sellingPrice')
       .sort({ purchaseDate: -1, createdAt: -1 })
       .limit(5);
 
-    // 7. Sales Chart Breakdown for selected period
+    // 8. Sales Chart Breakdown for selected period
     const salesChart = buildChartBreakdown(periodInfo.mode, startDate, endDate, salesInPeriod);
 
-    // 8. Automated Business Insights (Calculated from real DB data)
+    // 9. Automated Business Insights (Calculated from real DB data)
     const insights = [];
 
     // Best-selling product
+    const topProdMatch = getTenantQuery(req, matchQuery);
     const topProductAggregation = await Sale.aggregate([
-      { $match: matchQuery },
+      { $match: topProdMatch },
       { $group: { _id: '$product', totalQty: { $sum: '$quantity' }, totalRev: { $sum: '$totalAmount' } } },
       { $sort: { totalQty: -1 } },
       { $limit: 1 },

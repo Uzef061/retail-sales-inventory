@@ -2,6 +2,7 @@ const Sale = require('../models/Sale');
 const Product = require('../models/Product');
 const Customer = require('../models/Customer');
 const InventoryTransaction = require('../models/InventoryTransaction');
+const { getTenantQuery, hasTenantAccess } = require('../utils/tenantHelper');
 
 const normalizePaymentMethod = (pm) => {
   if (!pm) return 'CASH';
@@ -14,7 +15,8 @@ const normalizePaymentMethod = (pm) => {
 // GET /api/sales
 exports.getSales = async (req, res) => {
   try {
-    const sales = await Sale.find()
+    const query = getTenantQuery(req);
+    const sales = await Sale.find(query)
       .populate('customer', 'name email phone')
       .populate('product', 'name price sellingPrice costPrice category stock')
       .populate('items.product', 'name price sellingPrice costPrice category stock')
@@ -34,7 +36,7 @@ exports.getSaleById = async (req, res) => {
       .populate('product', 'name price sellingPrice costPrice category stock')
       .populate('items.product', 'name price sellingPrice costPrice category stock')
       .populate('cancelledBy', 'name username');
-    if (!sale) {
+    if (!sale || !hasTenantAccess(sale, req)) {
       return res.status(404).json({ success: false, message: 'Sale transaction not found.' });
     }
     res.status(200).json(sale);
@@ -66,8 +68,8 @@ exports.createSale = async (req, res) => {
     }
 
     const targetCustomer = await Customer.findById(customer);
-    if (!targetCustomer || targetCustomer.isActive === false) {
-      return res.status(404).json({ success: false, message: 'Active customer profile not found.', errorCode: 'CUSTOMER_NOT_FOUND' });
+    if (!targetCustomer || targetCustomer.isActive === false || !hasTenantAccess(targetCustomer, req)) {
+      return res.status(404).json({ success: false, message: 'Active customer profile not found or unauthorized.', errorCode: 'CUSTOMER_NOT_FOUND' });
     }
 
     // Validate saleDate if provided
@@ -98,8 +100,8 @@ exports.createSale = async (req, res) => {
           return res.status(400).json({ success: false, message: 'Valid product and positive quantity required for each item.', errorCode: 'INVALID_ITEM' });
         }
         const prod = await Product.findById(item.product);
-        if (!prod || prod.isActive === false) {
-          return res.status(404).json({ success: false, message: 'One or more products are inactive or no longer exist.', errorCode: 'PRODUCT_NOT_FOUND' });
+        if (!prod || prod.isActive === false || !hasTenantAccess(prod, req)) {
+          return res.status(404).json({ success: false, message: 'One or more products are inactive, not found or unauthorized.', errorCode: 'PRODUCT_NOT_FOUND' });
         }
         const qty = Number(item.quantity);
         if (prod.stock < qty) {
@@ -136,8 +138,8 @@ exports.createSale = async (req, res) => {
         return res.status(400).json({ success: false, message: 'Quantity must be greater than 0.', errorCode: 'INVALID_QUANTITY' });
       }
       const prod = await Product.findById(product);
-      if (!prod || prod.isActive === false) {
-        return res.status(404).json({ success: false, message: 'Target product not found or inactive.', errorCode: 'PRODUCT_NOT_FOUND' });
+      if (!prod || prod.isActive === false || !hasTenantAccess(prod, req)) {
+        return res.status(404).json({ success: false, message: 'Target product not found, inactive or unauthorized.', errorCode: 'PRODUCT_NOT_FOUND' });
       }
       if (prod.stock < qty) {
         return res.status(400).json({
@@ -182,6 +184,7 @@ exports.createSale = async (req, res) => {
 
       // Record Inventory Transaction
       await InventoryTransaction.create({
+        userId: req.user?._id,
         product: prod._id,
         type: 'SALE',
         quantity: -item.quantity,
@@ -207,6 +210,7 @@ exports.createSale = async (req, res) => {
     const firstItem = normalizedItems[0];
 
     const newSale = new Sale({
+      userId: req.user?._id,
       invoiceNumber,
       customer,
       product: firstItem.product,
@@ -249,7 +253,7 @@ exports.cancelSale = async (req, res) => {
     const { reason } = req.body;
 
     const sale = await Sale.findById(id);
-    if (!sale) {
+    if (!sale || !hasTenantAccess(sale, req)) {
       return res.status(404).json({ success: false, message: 'Sale record not found.', errorCode: 'NOT_FOUND' });
     }
 
@@ -278,6 +282,7 @@ exports.cancelSale = async (req, res) => {
         await prod.save();
 
         await InventoryTransaction.create({
+          userId: req.user?._id,
           product: prod._id,
           type: 'SALE_CANCELLED',
           quantity: Number(item.quantity),
@@ -318,7 +323,7 @@ exports.deleteSale = async (req, res) => {
   try {
     const { id } = req.params;
     const sale = await Sale.findById(id);
-    if (!sale) {
+    if (!sale || !hasTenantAccess(sale, req)) {
       return res.status(404).json({ success: false, message: 'Sale record not found.' });
     }
 
@@ -355,27 +360,31 @@ exports.bulkDeleteSales = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Please provide an array of sale IDs to delete.' });
     }
 
-    const sales = await Sale.find({ _id: { $in: ids } });
-    for (const sale of sales) {
-      if (sale.status === 'COMPLETED') {
-        let itemsToRestore = [];
-        if (Array.isArray(sale.items) && sale.items.length > 0) {
-          itemsToRestore = sale.items;
-        } else if (sale.product) {
-          itemsToRestore = [{ product: sale.product, quantity: sale.quantity }];
-        }
-        for (const item of itemsToRestore) {
-          const prod = await Product.findById(item.product);
-          if (prod) {
-            prod.stock += Number(item.quantity);
-            await prod.save();
+    let deletedCount = 0;
+    for (const id of ids) {
+      const sale = await Sale.findById(id);
+      if (sale && hasTenantAccess(sale, req)) {
+        if (sale.status === 'COMPLETED') {
+          let itemsToRestore = [];
+          if (Array.isArray(sale.items) && sale.items.length > 0) {
+            itemsToRestore = sale.items;
+          } else if (sale.product) {
+            itemsToRestore = [{ product: sale.product, quantity: sale.quantity }];
+          }
+          for (const item of itemsToRestore) {
+            const prod = await Product.findById(item.product);
+            if (prod) {
+              prod.stock += Number(item.quantity);
+              await prod.save();
+            }
           }
         }
+        await Sale.findByIdAndDelete(id);
+        deletedCount++;
       }
     }
 
-    const result = await Sale.deleteMany({ _id: { $in: ids } });
-    res.status(200).json({ success: true, message: 'Sales deleted successfully', count: result.deletedCount });
+    res.status(200).json({ success: true, message: 'Sales deleted successfully', count: deletedCount });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Error performing bulk sale deletion', error: error.message });
   }
@@ -395,7 +404,7 @@ exports.updateSale = async (req, res) => {
     } = req.body;
 
     const existingSale = await Sale.findById(id);
-    if (!existingSale) {
+    if (!existingSale || !hasTenantAccess(existingSale, req)) {
       return res.status(404).json({ success: false, message: 'Sale record not found.', errorCode: 'NOT_FOUND' });
     }
 
@@ -435,8 +444,8 @@ exports.updateSale = async (req, res) => {
         newProductQtyMap.set(pId, (newProductQtyMap.get(pId) || 0) + qty);
 
         const prodDoc = await Product.findById(item.product);
-        if (!prodDoc || prodDoc.isActive === false) {
-          return res.status(404).json({ success: false, message: 'Product not found or inactive.' });
+        if (!prodDoc || prodDoc.isActive === false || !hasTenantAccess(prodDoc, req)) {
+          return res.status(404).json({ success: false, message: 'Product not found, inactive or unauthorized.' });
         }
 
         const itemSellingPrice = item.sellingPrice !== undefined ? Number(item.sellingPrice) : (prodDoc.sellingPrice || prodDoc.price);
@@ -467,11 +476,11 @@ exports.updateSale = async (req, res) => {
     for (const pId of allProductIds) {
       const oldQty = oldProductQtyMap.get(pId) || 0;
       const newQty = newProductQtyMap.get(pId) || 0;
-      const deltaNeeded = newQty - oldQty; // e.g. 7 - 5 = +2 needed from inventory
+      const deltaNeeded = newQty - oldQty;
 
       const prod = await Product.findById(pId);
-      if (!prod) {
-        return res.status(404).json({ success: false, message: `Product ${pId} not found.` });
+      if (!prod || !hasTenantAccess(prod, req)) {
+        return res.status(404).json({ success: false, message: `Product ${pId} not found or unauthorized.` });
       }
 
       if (deltaNeeded > 0) {
@@ -501,6 +510,7 @@ exports.updateSale = async (req, res) => {
         await prod.save();
 
         await InventoryTransaction.create({
+          userId: req.user?._id,
           product: prod._id,
           type: adj.deltaNeeded > 0 ? 'SALE' : 'ADJUSTMENT',
           quantity: -adj.deltaNeeded,
@@ -530,7 +540,7 @@ exports.updateSale = async (req, res) => {
 
     if (customer) {
       const targetCustomer = await Customer.findById(customer);
-      if (targetCustomer) {
+      if (targetCustomer && hasTenantAccess(targetCustomer, req)) {
         existingSale.customer = targetCustomer._id;
       }
     }

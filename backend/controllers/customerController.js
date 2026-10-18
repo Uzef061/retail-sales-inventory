@@ -1,5 +1,6 @@
 const Customer = require('../models/Customer');
 const Sale = require('../models/Sale');
+const { getTenantQuery, hasTenantAccess } = require('../utils/tenantHelper');
 
 // Email regex pattern
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -7,10 +8,23 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // GET /api/customers
 exports.getCustomers = async (req, res) => {
   try {
-    const { activeOnly } = req.query;
-    let query = {};
+    const { activeOnly, search } = req.query;
+    let query = getTenantQuery(req);
+
     if (activeOnly === 'true') {
       query.isActive = true;
+    }
+    if (search) {
+      query.$and = [
+        ...(query.$and || []),
+        {
+          $or: [
+            { name: { $regex: search, $options: 'i' } },
+            { phone: { $regex: search, $options: 'i' } },
+            { email: { $regex: search, $options: 'i' } }
+          ]
+        }
+      ];
     }
     const customers = await Customer.find(query).sort({ createdAt: -1 });
     res.status(200).json(customers);
@@ -23,7 +37,7 @@ exports.getCustomers = async (req, res) => {
 exports.createCustomer = async (req, res) => {
   try {
     const { name, phone, email, address } = req.body;
-    
+
     if (!name || !name.trim()) {
       return res.status(400).json({ success: false, message: 'Customer name is required.', errorCode: 'MISSING_NAME' });
     }
@@ -35,6 +49,7 @@ exports.createCustomer = async (req, res) => {
     }
 
     const customer = new Customer({
+      userId: req.user?._id,
       name: name.trim(),
       phone: phone.trim(),
       email: email ? email.trim() : '',
@@ -53,6 +68,11 @@ exports.createCustomer = async (req, res) => {
 exports.updateCustomer = async (req, res) => {
   try {
     const { id } = req.params;
+    const customer = await Customer.findById(id);
+    if (!customer || !hasTenantAccess(customer, req)) {
+      return res.status(404).json({ success: false, message: 'Customer not found' });
+    }
+
     const { name, phone, email, address, isActive } = req.body;
 
     if (!name || !name.trim()) {
@@ -65,21 +85,13 @@ exports.updateCustomer = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Please provide a valid email address.' });
     }
 
-    const updatedCustomer = await Customer.findByIdAndUpdate(
-      id,
-      {
-        name: name.trim(),
-        phone: phone.trim(),
-        email: email ? email.trim() : '',
-        address: address ? address.trim() : '',
-        isActive: isActive !== undefined ? Boolean(isActive) : true
-      },
-      { new: true, runValidators: true }
-    );
+    customer.name = name.trim();
+    customer.phone = phone.trim();
+    customer.email = email ? email.trim() : '';
+    customer.address = address ? address.trim() : '';
+    if (isActive !== undefined) customer.isActive = Boolean(isActive);
 
-    if (!updatedCustomer) {
-      return res.status(404).json({ success: false, message: 'Customer not found' });
-    }
+    const updatedCustomer = await customer.save();
     res.status(200).json(updatedCustomer);
   } catch (error) {
     res.status(500).json({ success: false, message: 'Error updating customer', error: error.message });
@@ -91,7 +103,7 @@ exports.deleteCustomer = async (req, res) => {
   try {
     const { id } = req.params;
     const customer = await Customer.findById(id);
-    if (!customer) {
+    if (!customer || !hasTenantAccess(customer, req)) {
       return res.status(404).json({ success: false, message: 'Customer not found' });
     }
 
@@ -120,6 +132,11 @@ exports.deleteCustomer = async (req, res) => {
 exports.getCustomerHistory = async (req, res) => {
   try {
     const { id } = req.params;
+    const customer = await Customer.findById(id);
+    if (!customer || !hasTenantAccess(customer, req)) {
+      return res.status(404).json({ success: false, message: 'Customer not found' });
+    }
+
     const sales = await Sale.find({ customer: id })
       .populate('product', 'name price sellingPrice category')
       .populate('items.product', 'name price sellingPrice category')
