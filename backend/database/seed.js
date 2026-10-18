@@ -13,12 +13,12 @@ const seedData = async () => {
 
     console.log('Cleared existing database entries.');
 
-    // 1. Create Admin User
-    await User.create({
-      username: 'admin',
-      password: 'password123'
-    });
-    console.log('Created admin user (admin / password123)');
+    // 1. Create Admin & Cashier Users
+    await User.create([
+      { username: 'admin', password: 'password123', name: 'Store Admin', role: 'ADMIN' },
+      { username: 'cashier', password: 'password123', name: 'Billing Cashier', role: 'CASHIER' }
+    ]);
+    console.log('Created admin (admin / password123) and cashier (cashier / password123) users.');
 
     // 2. Create 10 Products with realistic Cost Price & Selling Price
     const sampleProducts = [
@@ -187,5 +187,23 @@ const ensureHistoricalSales = async () => {
   }
 };
 
+const ensureDemoUsers = async () => {
+  try {
+    let admin = await User.findOne({ username: 'admin' });
+    if (!admin) {
+      await User.create({ username: 'admin', password: 'password123', name: 'Store Admin', role: 'ADMIN' });
+      console.log('Ensured admin user exists (admin / password123).');
+    }
+    let cashier = await User.findOne({ username: 'cashier' });
+    if (!cashier) {
+      await User.create({ username: 'cashier', password: 'password123', name: 'Billing Cashier', role: 'CASHIER' });
+      console.log('Ensured cashier user exists (cashier / password123).');
+    }
+  } catch (err) {
+    console.error('Error ensuring demo users:', err.message);
+  }
+};
+
 module.exports = seedData;
 module.exports.ensureHistoricalSales = ensureHistoricalSales;
+module.exports.ensureDemoUsers = ensureDemoUsers;

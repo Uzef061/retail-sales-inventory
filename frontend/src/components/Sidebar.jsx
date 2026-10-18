@@ -16,10 +16,16 @@ import {
   Moon,
   Globe,
   ChevronDown,
-  Check
+  Check,
+  Truck,
+  PackageCheck,
+  Sparkles,
+  LogOut,
+  User as UserIcon
 } from 'lucide-react';
 import axios from 'axios';
 import { useApp } from '../context/AppContext';
+import { useAuth } from '../context/AuthContext';
 
 function CustomLanguageSelector() {
   const { lang, setLang } = useApp();
@@ -90,13 +96,17 @@ export default function Sidebar({ onDataRefresh }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [resetting, setResetting] = useState(false);
   const { theme, toggleTheme, t } = useApp();
+  const { user, logout } = useAuth();
 
   const navItems = [
     { label: t('dashboard'), path: '/', icon: LayoutDashboard },
     { label: t('products'), path: '/products', icon: Package },
     { label: t('inventory'), path: '/inventory', icon: Boxes },
+    { label: t('smartInventory') || 'Smart Inventory', path: '/smart-inventory', icon: Sparkles },
     { label: t('sales'), path: '/sales', icon: ShoppingCart },
     { label: t('customers'), path: '/customers', icon: Users },
+    { label: t('suppliers') || 'Suppliers', path: '/suppliers', icon: Truck },
+    { label: t('purchases') || 'Restock / Purchases', path: '/purchases', icon: PackageCheck },
     { label: t('reports'), path: '/reports', icon: BarChart3 },
     { label: t('profitLoss'), path: '/profit-loss', icon: TrendingUp }
   ];
@@ -190,7 +200,7 @@ export default function Sidebar({ onDataRefresh }) {
               <NavLink
                 key={item.path}
                 to={item.path}
-                end={item.path === '/'}
+                end={item.path !== '/sales' && item.path !== '/purchases'}
                 className={({ isActive }) =>
                   `nav-link ${isActive ? 'active' : ''}`
                 }
@@ -204,6 +214,28 @@ export default function Sidebar({ onDataRefresh }) {
         </nav>
 
         <div className="sidebar-footer">
+          {user && (
+            <div className="sidebar-user-card">
+              <div className="user-avatar-circle">
+                <UserIcon size={16} />
+              </div>
+              <div className="user-info-text">
+                <div className="user-display-name">{user.name || user.username}</div>
+                <div className={`user-role-badge badge-${user.role?.toLowerCase()}`}>
+                  {user.role}
+                </div>
+              </div>
+              <button
+                type="button"
+                className="user-logout-btn"
+                onClick={logout}
+                title="Sign Out"
+              >
+                <LogOut size={16} />
+              </button>
+            </div>
+          )}
+
           <button
             className="btn btn-secondary btn-sm seed-btn"
             onClick={handleResetData}
@@ -324,6 +356,84 @@ export default function Sidebar({ onDataRefresh }) {
         .sidebar-footer {
           padding: 1rem 1.25rem;
           border-top: 1px solid var(--border-color);
+          display: flex;
+          flex-direction: column;
+          gap: 0.75rem;
+        }
+
+        .sidebar-user-card {
+          display: flex;
+          align-items: center;
+          gap: 0.65rem;
+          padding: 0.65rem 0.75rem;
+          background-color: var(--input-bg, rgba(0, 0, 0, 0.03));
+          border: 1px solid var(--border-color);
+          border-radius: var(--radius-sm, 6px);
+        }
+
+        .user-avatar-circle {
+          width: 32px;
+          height: 32px;
+          border-radius: 50%;
+          background-color: rgba(201, 106, 61, 0.15);
+          color: var(--primary);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          flex-shrink: 0;
+        }
+
+        .user-info-text {
+          flex: 1;
+          min-width: 0;
+        }
+
+        .user-display-name {
+          font-weight: 700;
+          font-size: 0.85rem;
+          color: var(--text-main);
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .user-role-badge {
+          display: inline-block;
+          font-size: 0.68rem;
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: 0.4px;
+          padding: 0.1rem 0.35rem;
+          border-radius: 4px;
+          line-height: 1;
+        }
+
+        .badge-admin {
+          background-color: rgba(201, 106, 61, 0.15);
+          color: var(--primary);
+        }
+
+        .badge-cashier {
+          background-color: rgba(40, 167, 69, 0.15);
+          color: #28a745;
+        }
+
+        .user-logout-btn {
+          background: none;
+          border: none;
+          color: var(--text-muted);
+          cursor: pointer;
+          padding: 0.35rem;
+          border-radius: 4px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transition: all 0.15s ease;
+        }
+
+        .user-logout-btn:hover {
+          color: #dc3545;
+          background-color: rgba(220, 53, 69, 0.1);
         }
 
         .seed-btn {

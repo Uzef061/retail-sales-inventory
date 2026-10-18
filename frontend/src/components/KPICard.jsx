@@ -1,6 +1,6 @@
 import React from 'react';
 
-export default function KPICard({ label, value, icon: Icon, color = 'var(--primary)' }) {
+export default function KPICard({ label, value, subtext, icon: Icon, color = 'var(--primary)' }) {
   return (
     <div className="kpi-card">
       <div className="kpi-icon-wrapper" style={{ color: color, backgroundColor: `rgba(${hexToRgb(color)}, 0.12)` }}>
@@ -9,6 +9,11 @@ export default function KPICard({ label, value, icon: Icon, color = 'var(--prima
       <div className="kpi-info">
         <span className="kpi-label">{label}</span>
         <span className="kpi-value">{value}</span>
+        {subtext && (
+          <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 500, marginTop: '0.15rem' }}>
+            {subtext}
+          </span>
+        )}
       </div>
     </div>
   );

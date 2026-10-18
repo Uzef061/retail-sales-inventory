@@ -12,7 +12,11 @@ const productSchema = new mongoose.Schema(
       min: 0,
       get: function() { return this.sellingPrice; }
     },
-    stock: { type: Number, required: true, min: 0, default: 0 }
+    stock: { type: Number, required: true, min: 0, default: 0 },
+    reorderLevel: { type: Number, default: 10, min: 0 },
+    reorderQuantity: { type: Number, default: 20, min: 1 },
+    sku: { type: String, trim: true },
+    isActive: { type: Boolean, default: true }
   },
   {
     timestamps: true,
@@ -21,9 +25,9 @@ const productSchema = new mongoose.Schema(
   }
 );
 
-// Virtual property 'profitMarginPerUnit'
+// Virtual property 'profitPerUnit'
 productSchema.virtual('profitPerUnit').get(function () {
-  return this.sellingPrice - this.costPrice;
+  return (this.sellingPrice || 0) - (this.costPrice || 0);
 });
 
 module.exports = mongoose.model('Product', productSchema);

@@ -1,25 +1,60 @@
 const mongoose = require('mongoose');
 
+const saleItemSchema = new mongoose.Schema({
+  product: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Product',
+    required: true
+  },
+  quantity: { type: Number, required: true, min: 1 },
+  sellingPrice: { type: Number, required: true, min: 0 },
+  costPrice: { type: Number, required: true, min: 0 },
+  totalAmount: { type: Number, required: true, min: 0 },
+  totalCostAmount: { type: Number, required: true, min: 0 },
+  profit: { type: Number, required: true }
+});
+
 const saleSchema = new mongoose.Schema(
   {
+    invoiceNumber: { type: String, unique: true, sparse: true },
     customer: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Customer',
       required: true
     },
+    // Single product fallback for legacy / single-item API calls
     product: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'Product',
-      required: true
+      ref: 'Product'
     },
-    quantity: { type: Number, required: true, min: 1 },
-    sellingPrice: { type: Number, required: true, min: 0 }, // Actual transaction selling price
-    costPrice: { type: Number, required: true, min: 0 },    // Transaction cost price snapshot
-    totalAmount: { type: Number, required: true, min: 0 },  // Revenue
-    totalCostAmount: { type: Number, required: true, min: 0 }, // Total Cost
-    profit: { type: Number, required: true },               // Net Profit for this sale
+    items: [saleItemSchema],
+    quantity: { type: Number, required: true, min: 1, default: 1 },
+    sellingPrice: { type: Number, required: true, min: 0, default: 0 },
+    costPrice: { type: Number, required: true, min: 0, default: 0 },
+    totalAmount: { type: Number, required: true, min: 0, default: 0 },
+    totalCostAmount: { type: Number, required: true, min: 0, default: 0 },
+    profit: { type: Number, required: true, default: 0 },
+    subtotal: { type: Number, default: 0 },
+    discount: { type: Number, default: 0 },
+    tax: { type: Number, default: 0 },
+    grandTotal: { type: Number, default: 0 },
+    paymentMethod: {
+      type: String,
+      enum: ['CASH', 'CARD', 'UPI', 'OTHER'],
+      default: 'CASH'
+    },
+    amountReceived: { type: Number, default: 0 },
+    changeDue: { type: Number, default: 0 },
+    status: {
+      type: String,
+      enum: ['COMPLETED', 'CANCELLED'],
+      default: 'COMPLETED'
+    },
+    cancelledAt: { type: Date },
+    cancelledBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    cancellationReason: { type: String },
     saleDate: { type: Date, default: Date.now },
-    demoId: { type: String, sparse: true },                 // Idempotent demo record key
+    demoId: { type: String, sparse: true },
     isDemoRecord: { type: Boolean, default: false }
   },
   { timestamps: true }
