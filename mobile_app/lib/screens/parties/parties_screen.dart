@@ -179,6 +179,7 @@ class _PartiesScreenState extends State<PartiesScreen> with SingleTickerProvider
         ),
       ),
       floatingActionButton: FloatingActionButton.extended(
+        heroTag: 'parties_fab_add_party',
         onPressed: () {
           if (isCustomerTab) {
             _openAddCustomer();

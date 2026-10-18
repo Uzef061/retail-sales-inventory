@@ -113,6 +113,7 @@ class _StockScreenState extends State<StockScreen> {
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
+        heroTag: 'stock_fab_add_product',
         onPressed: () => _openAddProductDialog(),
         icon: const Icon(Icons.add),
         label: const Text('Add Product'),

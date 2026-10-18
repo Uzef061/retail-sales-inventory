@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../core/services/api_client.dart';
 import '../../core/services/auth_service.dart';
@@ -19,6 +20,7 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _obscurePassword = true;
   bool _isLoading = false;
   String? _errorMessage;
+  String? _errorCategory;
 
   @override
   void dispose() {
@@ -32,7 +34,27 @@ class _LoginScreenState extends State<LoginScreen> {
       _usernameController.text = username;
       _passwordController.text = password;
       _errorMessage = null;
+      _errorCategory = null;
     });
+  }
+
+  String _formatErrorMessage(ApiException e) {
+    switch (e.category) {
+      case AuthErrorCategory.network:
+        return 'Cannot connect to server. Please check internet access or server URL in Settings.';
+      case AuthErrorCategory.timeout:
+        return 'Server took too long to respond. The free Render instance might be waking up (please retry).';
+      case AuthErrorCategory.storage:
+        return 'Device session storage error: ${e.message}';
+      case AuthErrorCategory.responseShape:
+        return 'Server response error: ${e.message}';
+      case AuthErrorCategory.parse:
+        return 'Invalid response format received from server (${e.statusCode}).';
+      case AuthErrorCategory.http:
+      case AuthErrorCategory.unknown:
+      case AuthErrorCategory.navigation:
+        return e.message;
+    }
   }
 
   Future<void> _handleLogin() async {
@@ -42,12 +64,18 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() {
       _isLoading = true;
       _errorMessage = null;
+      _errorCategory = null;
     });
 
     try {
       await AuthService().login(
         _usernameController.text.trim(),
         _passwordController.text,
+      );
+
+      AuthLogger.logStage(
+        correlationId: 'nav',
+        stage: 'navigation_started',
       );
 
       if (mounted) {
@@ -57,8 +85,10 @@ class _LoginScreenState extends State<LoginScreen> {
       }
     } on ApiException catch (e) {
       if (mounted) {
+        final displayMsg = _formatErrorMessage(e);
         setState(() {
-          _errorMessage = e.message;
+          _errorMessage = displayMsg;
+          _errorCategory = e.category.name.toUpperCase();
         });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -66,7 +96,7 @@ class _LoginScreenState extends State<LoginScreen> {
               children: [
                 const Icon(Icons.error_outline, color: Colors.white, size: 20),
                 const SizedBox(width: 8),
-                Expanded(child: Text(e.message)),
+                Expanded(child: Text(displayMsg)),
               ],
             ),
             backgroundColor: AppTheme.error,
@@ -74,14 +104,25 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         );
       }
-    } catch (e) {
+    } catch (e, stack) {
+      AuthLogger.logStage(
+        correlationId: 'login_err',
+        stage: 'unexpected_login_exception',
+        exceptionClass: e.runtimeType.toString(),
+        exceptionMessage: e.toString(),
+        stackTrace: stack,
+      );
+
       if (mounted) {
+        final errorDetail = kDebugMode ? ': $e' : ' (${e.runtimeType})';
+        final displayMsg = 'Login encountered an issue$errorDetail. Please retry or verify Server Settings.';
         setState(() {
-          _errorMessage = 'An unexpected error occurred. Please try again.';
+          _errorMessage = displayMsg;
+          _errorCategory = 'UNEXPECTED';
         });
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('An unexpected error occurred. Please try again.'),
+          SnackBar(
+            content: Text(displayMsg),
             backgroundColor: AppTheme.error,
             behavior: SnackBarBehavior.floating,
           ),
@@ -161,17 +202,35 @@ class _LoginScreenState extends State<LoginScreen> {
                         border: Border.all(color: AppTheme.error.withValues(alpha: 0.3)),
                       ),
                       child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           const Icon(Icons.error_outline, color: AppTheme.error, size: 20),
                           const SizedBox(width: 8),
                           Expanded(
-                            child: Text(
-                              _errorMessage!,
-                              style: const TextStyle(
-                                color: AppTheme.error,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w500,
-                              ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                if (_errorCategory != null) ...[
+                                  Text(
+                                    '[$_errorCategory]',
+                                    style: const TextStyle(
+                                      color: AppTheme.error,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
+                                      letterSpacing: 0.5,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                ],
+                                Text(
+                                  _errorMessage!,
+                                  style: const TextStyle(
+                                    color: AppTheme.error,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ],
