@@ -37,21 +37,69 @@ workflows:
             exit 1
           fi
 
-          if ! command -v keytool >/dev/null 2>&1; then
-            echo "ERROR: 'keytool' command is missing in build environment."
+          echo "Resolving Android signing inspection tool (apksigner / keytool)..."
+          APKSIGNER_BIN=""
+          if command -v apksigner >/dev/null 2>&1; then
+            APKSIGNER_BIN="apksigner"
+          else
+            for dir in "$ANDROID_SDK_ROOT/build-tools" "$ANDROID_HOME/build-tools" "$HOME/Library/Android/sdk/build-tools" /opt/android-sdk/build-tools; do
+              if [ -d "$dir" ]; then
+                CANDIDATE=$(find "$dir" -name apksigner -type f 2>/dev/null | sort -V | tail -n 1)
+                if [ -n "$CANDIDATE" ] && [ -x "$CANDIDATE" ]; then
+                  APKSIGNER_BIN="$CANDIDATE"
+                  break
+                fi
+              fi
+            done
+          fi
+
+          if [ -n "$APKSIGNER_BIN" ]; then
+            echo "Inspecting APK signing certificate with apksigner ($APKSIGNER_BIN)..."
+            CERT_INFO=$("$APKSIGNER_BIN" verify --print-certs "$APK_PATH" 2>&1)
+            VERIFY_STATUS=$?
+          elif command -v keytool >/dev/null 2>&1; then
+            echo "apksigner not found; attempting with keytool..."
+            CERT_INFO=$(keytool -printcert -jarfile "$APK_PATH" 2>&1)
+            VERIFY_STATUS=$?
+          else
+            echo "ERROR: Neither 'apksigner' nor 'keytool' is available in PATH or Android SDK directories."
             exit 1
           fi
 
-          echo "Extracting SHA-1 fingerprint from APK signing certificate..."
-          SHA1_LINE=$(keytool -printcert -jarfile "$APK_PATH" | grep -i "SHA1:")
-          if [ -z "$SHA1_LINE" ]; then
-            echo "ERROR: Could not extract SHA-1 certificate fingerprint from $APK_PATH"
+          if [ $VERIFY_STATUS -ne 0 ] || [ -z "$CERT_INFO" ]; then
+            echo "ERROR: Certificate inspection failed with exit status $VERIFY_STATUS."
+            echo "Diagnostic tool output:"
+            echo "$CERT_INFO"
             exit 1
+          fi
+
+          RAW_SHA1=$(echo "$CERT_INFO" | grep -E -i "(SHA-1 digest|SHA1:)" | head -n 1)
+          if [ -z "$RAW_SHA1" ]; then
+            echo "ERROR: SHA-1 fingerprint line not found in certificate output."
+            echo "Diagnostic tool output:"
+            echo "$CERT_INFO"
+            exit 1
+          fi
+
+          # Extract raw hex string
+          HEX_VAL=$(echo "$RAW_SHA1" | awk -F': ' '{print $NF}' | tr -d ' ' | tr '[:lower:]' '[:upper:]')
+
+          # Format with colons if unformatted (apksigner outputs lowercase hex without colons)
+          if echo "$HEX_VAL" | grep -q ":"; then
+            FORMATTED_SHA1="$HEX_VAL"
+          else
+            FORMATTED_SHA1=$(echo "$HEX_VAL" | awk '{gsub(/../, "&:"); sub(/:$/, ""); print}')
           fi
 
           echo "=========================================================="
-          echo "APK SIGNING CERTIFICATE SHA-1 FINGERPRINT:"
-          echo "$SHA1_LINE"
+          echo "APK SIGNING CERTIFICATE DETAILS:"
+          echo "$CERT_INFO" | grep -E -i "(certificate DN|Owner:|Issuer:)" || true
+          echo ""
+          echo "RAW EXTRACTED LINE:"
+          echo "  $RAW_SHA1"
+          echo ""
+          echo "GOOGLE CLOUD CONSOLE FORMAT (WITH COLONS):"
+          echo "  $FORMATTED_SHA1"
           echo "=========================================================="
     artifacts:
       - mobile_app/build/**/outputs/**/*.apk
