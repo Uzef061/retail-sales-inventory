@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config/api_config.dart';
 import '../../models/user.dart';
@@ -71,6 +72,84 @@ class AuthService extends ChangeNotifier {
     );
 
     return _processAuthResponse(response, reqId, fallbackUsername: cleanUsername);
+  }
+
+  Future<User?> signInWithGoogle({GoogleSignIn? googleSignInClient}) async {
+    final reqId = 'google_signin_${DateTime.now().millisecondsSinceEpoch.toRadixString(36)}';
+
+    AuthLogger.logStage(
+      correlationId: reqId,
+      stage: 'google_sdk_init',
+    );
+
+    final GoogleSignIn googleSignIn = googleSignInClient ??
+        GoogleSignIn(
+          scopes: const ['email', 'profile'],
+          serverClientId: ApiConfig.googleServerClientId.isNotEmpty
+              ? ApiConfig.googleServerClientId
+              : null,
+        );
+
+    GoogleSignInAccount? account;
+    try {
+      AuthLogger.logStage(
+        correlationId: reqId,
+        stage: 'google_prompt_started',
+      );
+      account = await googleSignIn.signIn();
+    } catch (e) {
+      AuthLogger.logStage(
+        correlationId: reqId,
+        stage: 'google_prompt_failed',
+      );
+      throw ApiException(
+        statusCode: 0,
+        category: AuthErrorCategory.network,
+        correlationId: reqId,
+        message: 'Google Sign-In prompt failed: $e',
+      );
+    }
+
+    if (account == null) {
+      AuthLogger.logStage(
+        correlationId: reqId,
+        stage: 'google_prompt_cancelled',
+      );
+      return null;
+    }
+
+    AuthLogger.logStage(
+      correlationId: reqId,
+      stage: 'google_account_selected',
+    );
+
+    final GoogleSignInAuthentication auth = await account.authentication;
+    final String? idToken = auth.idToken;
+
+    AuthLogger.logStage(
+      correlationId: reqId,
+      stage: 'google_token_retrieved',
+    );
+
+    if (idToken == null || idToken.isEmpty) {
+      if (ApiConfig.googleServerClientId.isEmpty) {
+        throw ApiException(
+          statusCode: 400,
+          category: AuthErrorCategory.http,
+          correlationId: reqId,
+          message: 'Google Sign-In configuration error: Missing Google Web Client ID (GOOGLE_SERVER_CLIENT_ID). On Android, retrieving an ID token requires setting serverClientId.',
+        );
+      } else {
+        throw ApiException(
+          statusCode: 400,
+          category: AuthErrorCategory.http,
+          correlationId: reqId,
+          message: 'Google did not return an ID token for this account. Ensure the Google Cloud OAuth client ID and Android SHA-1 fingerprint are properly registered.',
+        );
+      }
+    }
+
+    return loginWithGoogle(idToken);
   }
 
   Future<User> loginWithGoogle(String idToken) async {

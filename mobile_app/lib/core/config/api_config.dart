@@ -3,6 +3,13 @@ class ApiConfig {
   static const String defaultLocalUrl = 'http://10.0.2.2:5000'; // Android emulator to host
   static const String defaultLanUrl = 'http://localhost:5000';
 
+  // Google OAuth Web Client ID (from Google Cloud Console)
+  // Required on Android to obtain an OpenID Connect ID token for backend server verification
+  static const String googleServerClientId = String.fromEnvironment(
+    'GOOGLE_SERVER_CLIENT_ID',
+    defaultValue: '',
+  );
+
   static const String prefsBaseUrlKey = 'api_base_url';
   static const String prefsTokenKey = 'auth_token';
   static const String prefsUserKey = 'auth_user';

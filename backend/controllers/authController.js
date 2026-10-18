@@ -83,9 +83,9 @@ exports.googleLogin = async (req, res) => {
 
     let payload;
 
-    // Handle development / automated testing mock tokens safely
+    // In automated unit/integration test environment ONLY (NODE_ENV === 'test'), allow controlled mock token
     if (
-      process.env.NODE_ENV !== 'production' &&
+      process.env.NODE_ENV === 'test' &&
       typeof tokenToVerify === 'string' &&
       tokenToVerify.startsWith('mock_test_token_')
     ) {
@@ -95,14 +95,21 @@ exports.googleLogin = async (req, res) => {
         email: parts[4] ? `${parts[4]}@test.com` : 'shopowner@test.com',
         name: parts[5] || 'Test Shopkeeper',
         picture: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100',
-        email_verified: true
+        email_verified: true,
+        iss: 'https://accounts.google.com'
       };
     } else {
       // Real cryptographic token verification via Google OAuth2 Client
       try {
+        const allowedAudiences = [
+          process.env.GOOGLE_CLIENT_ID,
+          process.env.GOOGLE_WEB_CLIENT_ID,
+          process.env.GOOGLE_ANDROID_CLIENT_ID
+        ].filter(Boolean);
+
         const ticket = await googleClient.verifyIdToken({
           idToken: tokenToVerify,
-          audience: process.env.GOOGLE_CLIENT_ID || undefined
+          audience: allowedAudiences.length > 0 ? (allowedAudiences.length === 1 ? allowedAudiences[0] : allowedAudiences) : undefined
         });
         payload = ticket.getPayload();
       } catch (verifyErr) {
@@ -114,11 +121,38 @@ exports.googleLogin = async (req, res) => {
       }
     }
 
-    if (!payload || !payload.email) {
+    if (!payload) {
+      return res.status(401).json({
+        success: false,
+        message: 'Google authentication failed: Empty token payload.',
+        errorCode: 'INVALID_GOOGLE_TOKEN'
+      });
+    }
+
+    // Validate Issuer
+    const validIssuers = ['accounts.google.com', 'https://accounts.google.com'];
+    if (!validIssuers.includes(payload.iss)) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid Google token issuer.',
+        errorCode: 'INVALID_GOOGLE_ISSUER'
+      });
+    }
+
+    // Validate verified email
+    if (!payload.email) {
       return res.status(400).json({
         success: false,
-        message: 'Google token does not contain a verified email address.',
+        message: 'Google token does not contain an email address.',
         errorCode: 'GOOGLE_EMAIL_MISSING'
+      });
+    }
+
+    if (payload.email_verified !== true) {
+      return res.status(401).json({
+        success: false,
+        message: 'Google account email is not verified.',
+        errorCode: 'GOOGLE_EMAIL_UNVERIFIED'
       });
     }
 

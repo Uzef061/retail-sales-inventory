@@ -135,14 +135,9 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     try {
-      // Prompt user or use authenticated Google token
-      // When external Google OAuth client ID is configured, real token is submitted.
-      // If running in development/local test mode, provide an easy prompt or mock token.
-      final mockOrRealToken = 'mock_test_token_google_user_${DateTime.now().millisecondsSinceEpoch}_shopkeeper_Kirana Owner';
+      final user = await AuthService().signInWithGoogle();
 
-      final user = await AuthService().loginWithGoogle(mockOrRealToken);
-
-      if (mounted) {
+      if (user != null && mounted) {
         _navigateAfterAuth(user);
       }
     } on ApiException catch (e) {

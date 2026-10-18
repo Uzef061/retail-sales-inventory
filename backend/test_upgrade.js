@@ -1,4 +1,5 @@
 require('dotenv').config();
+process.env.NODE_ENV = 'test';
 const mongoose = require('mongoose');
 
 const User = require('./models/User');
