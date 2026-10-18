@@ -1,4 +1,4 @@
-package com.retailsalesinventory.mobile_app
+package com.retailsalesinventory.app
 
 import io.flutter.embedding.android.FlutterActivity
 

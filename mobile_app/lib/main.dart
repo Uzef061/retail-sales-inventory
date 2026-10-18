@@ -6,8 +6,18 @@ import 'screens/main_navigation_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  FlutterError.onError = (FlutterErrorDetails details) {
+    FlutterError.presentError(details);
+    debugPrint('Flutter Startup Error: ${details.exceptionAsString()}');
+  };
+
   final authService = AuthService();
-  await authService.init();
+  try {
+    await authService.init();
+  } catch (e, stack) {
+    debugPrint('Auth initialization warning: $e\n$stack');
+  }
 
   runApp(RetailSalesApp(authService: authService));
 }
