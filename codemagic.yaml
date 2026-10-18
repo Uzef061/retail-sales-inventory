@@ -22,7 +22,37 @@ workflows:
           flutter test
       - name: Build Android APK
         script: |
-          flutter build apk --release --no-shrink
+          if [ -z "$GOOGLE_SERVER_CLIENT_ID" ]; then
+            echo "ERROR: GOOGLE_SERVER_CLIENT_ID environment variable is missing or empty."
+            echo "Please configure GOOGLE_SERVER_CLIENT_ID in your Codemagic workflow environment variables."
+            exit 1
+          fi
+          echo "GOOGLE_SERVER_CLIENT_ID is present. Starting release build..."
+          flutter build apk --release --no-shrink \
+            --dart-define=GOOGLE_SERVER_CLIENT_ID="$GOOGLE_SERVER_CLIENT_ID"
+
+          APK_PATH="build/app/outputs/flutter-apk/app-release.apk"
+          if [ ! -f "$APK_PATH" ]; then
+            echo "ERROR: Release APK not found at: $APK_PATH"
+            exit 1
+          fi
+
+          if ! command -v keytool >/dev/null 2>&1; then
+            echo "ERROR: 'keytool' command is missing in build environment."
+            exit 1
+          fi
+
+          echo "Extracting SHA-1 fingerprint from APK signing certificate..."
+          SHA1_LINE=$(keytool -printcert -jarfile "$APK_PATH" | grep -i "SHA1:")
+          if [ -z "$SHA1_LINE" ]; then
+            echo "ERROR: Could not extract SHA-1 certificate fingerprint from $APK_PATH"
+            exit 1
+          fi
+
+          echo "=========================================================="
+          echo "APK SIGNING CERTIFICATE SHA-1 FINGERPRINT:"
+          echo "$SHA1_LINE"
+          echo "=========================================================="
     artifacts:
       - mobile_app/build/**/outputs/**/*.apk
       - build/**/outputs/**/*.apk
