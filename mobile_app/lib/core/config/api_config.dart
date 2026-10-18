@@ -18,6 +18,6 @@ class ApiConfig {
   static const String suppliers = '/api/suppliers';
   static const String profitLoss = '/api/profit-loss';
 
-  // Request timeout
-  static const Duration timeoutDuration = Duration(seconds: 15);
+  // Generous request timeout for free Render cloud cold starts
+  static const Duration timeoutDuration = Duration(seconds: 45);
 }

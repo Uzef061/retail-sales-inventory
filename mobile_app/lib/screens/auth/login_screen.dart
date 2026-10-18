@@ -15,7 +15,7 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
   final _usernameController = TextEditingController(text: 'admin');
-  final _passwordController = TextEditingController(text: 'admin123');
+  final _passwordController = TextEditingController(text: 'password123');
   bool _obscurePassword = true;
   bool _isLoading = false;
   String? _errorMessage;
@@ -36,6 +36,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _handleLogin() async {
+    FocusScope.of(context).unfocus();
     if (!_formKey.currentState!.validate()) return;
 
     setState(() {
@@ -55,13 +56,37 @@ class _LoginScreenState extends State<LoginScreen> {
         );
       }
     } on ApiException catch (e) {
-      setState(() {
-        _errorMessage = e.message;
-      });
+      if (mounted) {
+        setState(() {
+          _errorMessage = e.message;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.error_outline, color: Colors.white, size: 20),
+                const SizedBox(width: 8),
+                Expanded(child: Text(e.message)),
+              ],
+            ),
+            backgroundColor: AppTheme.error,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     } catch (e) {
-      setState(() {
-        _errorMessage = 'An unexpected error occurred. Please try again.';
-      });
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'An unexpected error occurred. Please try again.';
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('An unexpected error occurred. Please try again.'),
+            backgroundColor: AppTheme.error,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -256,14 +281,14 @@ class _LoginScreenState extends State<LoginScreen> {
                       ActionChip(
                         avatar: const Icon(Icons.admin_panel_settings, size: 16),
                         label: const Text('Admin', style: TextStyle(fontSize: 12)),
-                        onPressed: () => _autofill('admin', 'admin123'),
+                        onPressed: () => _autofill('admin', 'password123'),
                         backgroundColor: AppTheme.primaryLight,
                       ),
                       const SizedBox(width: 8),
                       ActionChip(
                         avatar: const Icon(Icons.badge, size: 16),
                         label: const Text('Cashier', style: TextStyle(fontSize: 12)),
-                        onPressed: () => _autofill('cashier', 'cashier123'),
+                        onPressed: () => _autofill('cashier', 'password123'),
                         backgroundColor: AppTheme.surface,
                       ),
                     ],

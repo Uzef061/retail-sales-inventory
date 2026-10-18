@@ -39,7 +39,11 @@ class ApiClient {
     final prefs = await SharedPreferences.getInstance();
     final savedUrl = prefs.getString(ApiConfig.prefsBaseUrlKey);
     if (savedUrl != null && savedUrl.trim().isNotEmpty) {
-      _baseUrl = savedUrl.trim();
+      String clean = savedUrl.trim();
+      while (clean.endsWith('/')) {
+        clean = clean.substring(0, clean.length - 1);
+      }
+      _baseUrl = clean;
     }
     _authToken = prefs.getString(ApiConfig.prefsTokenKey);
   }
@@ -76,8 +80,15 @@ class ApiClient {
   }
 
   Uri _buildUri(String endpoint, [Map<String, dynamic>? queryParams]) {
+    String base = _baseUrl.trim();
+    while (base.endsWith('/')) {
+      base = base.substring(0, base.length - 1);
+    }
     String path = endpoint.startsWith('/') ? endpoint : '/$endpoint';
-    String fullUrl = '$_baseUrl$path';
+    if (base.endsWith('/api') && path.startsWith('/api/')) {
+      base = base.substring(0, base.length - 4);
+    }
+    String fullUrl = '$base$path';
 
     if (queryParams != null && queryParams.isNotEmpty) {
       final query = queryParams.map((k, v) => MapEntry(k, v.toString()));

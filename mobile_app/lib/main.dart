@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'core/services/auth_service.dart';
 import 'core/theme/app_theme.dart';
-import 'screens/auth/login_screen.dart';
-import 'screens/main_navigation_screen.dart';
+import 'screens/splash/splash_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -33,9 +32,7 @@ class RetailSalesApp extends StatelessWidget {
       title: 'Retail Sales & Inventory',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
-      home: authService.isLoggedIn
-          ? const MainNavigationScreen()
-          : const LoginScreen(),
+      home: SplashScreen(authService: authService),
     );
   }
 }
