@@ -5,7 +5,7 @@ workflows:
     instance_type: mac_mini_m2
     environment:
       flutter: stable
-      groups: aa
+      groups: [aa]
     working_directory: mobile_app
     scripts:
       - name: Set up local.properties
