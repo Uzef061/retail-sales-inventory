@@ -17,7 +17,7 @@ void main() {
     );
 
     // Verify title and description
-    expect(find.text('Retail Sales & Inventory'), findsOneWidget);
+    expect(find.text('Karobiz'), findsOneWidget);
     expect(find.text('Sign In'), findsOneWidget);
     expect(find.text('Sign In to Store'), findsOneWidget);
 
@@ -56,7 +56,7 @@ void main() {
     );
 
     // Initial pump shows the splash elements
-    expect(find.text('Retail Sales & Inventory'), findsOneWidget);
+    expect(find.text('Karobiz'), findsOneWidget);
     expect(find.text('Smart small-business management'), findsOneWidget);
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
 

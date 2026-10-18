@@ -207,10 +207,10 @@ class _LoginScreenState extends State<LoginScreen> {
 
                   // App Title & Tagline
                   const Text(
-                    'Retail Sales & Inventory',
+                    'Karobiz',
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                      fontSize: 24,
+                      fontSize: 26,
                       fontWeight: FontWeight.w800,
                       color: AppTheme.textPrimary,
                       letterSpacing: -0.5,

@@ -29,7 +29,7 @@ class RetailSalesApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Retail Sales & Inventory',
+      title: 'Karobiz',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       home: SplashScreen(authService: authService),

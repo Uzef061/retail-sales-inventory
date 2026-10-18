@@ -158,10 +158,10 @@ class _SplashScreenState extends State<SplashScreen>
                       child: Column(
                         children: [
                           const Text(
-                            'Retail Sales & Inventory',
+                            'Karobiz',
                             textAlign: TextAlign.center,
                             style: TextStyle(
-                              fontSize: 24,
+                              fontSize: 28,
                               fontWeight: FontWeight.w800,
                               color: AppTheme.textPrimary,
                               letterSpacing: -0.5,
