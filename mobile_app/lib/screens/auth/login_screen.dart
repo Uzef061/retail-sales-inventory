@@ -2,9 +2,10 @@ import 'package:flutter/material.dart';
 import '../../core/services/api_client.dart';
 import '../../core/services/auth_service.dart';
 import '../../core/theme/app_theme.dart';
-import '../onboarding/onboarding_screen.dart';
+import '../../models/user.dart';
 import '../main_navigation_screen.dart';
 import '../more/settings_screen.dart';
+import '../splash/splash_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -60,13 +61,23 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  void _navigateAfterAuth(dynamic user) {
-    final hasOnboarded = user.hasCompletedOnboarding == true;
-    final target = hasOnboarded ? const MainNavigationScreen() : const OnboardingScreen();
+  void _navigateAfterAuth(User user) {
+    // Only genuinely new users (first-time Google sign-in or uncompleted onboarding)
+    // trigger the introductory welcome animation, which then smoothly transitions to OnboardingScreen.
+    final bool isNew = user.isNewUser || !user.hasCompletedOnboarding;
 
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => target),
-    );
+    if (isNew) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => SplashScreen(authService: AuthService()),
+        ),
+      );
+    } else {
+      // Returning users go directly to the normal store dashboard
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => const MainNavigationScreen()),
+      );
+    }
   }
 
   Future<void> _handleLogin() async {

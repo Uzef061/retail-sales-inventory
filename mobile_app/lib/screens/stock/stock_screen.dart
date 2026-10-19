@@ -6,7 +6,8 @@ import '../../models/product.dart';
 import 'add_product_dialog.dart';
 
 class StockScreen extends StatefulWidget {
-  const StockScreen({super.key});
+  final bool isSelected;
+  const StockScreen({super.key, this.isSelected = false});
 
   @override
   State<StockScreen> createState() => _StockScreenState();
@@ -28,6 +29,14 @@ class _StockScreenState extends State<StockScreen> {
   }
 
   @override
+  void didUpdateWidget(covariant StockScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isSelected && !oldWidget.isSelected) {
+      _loadProducts();
+    }
+  }
+
+  @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
@@ -41,18 +50,19 @@ class _StockScreenState extends State<StockScreen> {
 
     try {
       final res = await _apiClient.get(ApiConfig.products);
+      List<Product> prods = [];
       if (res is List) {
-        final list = res.map((p) => Product.fromJson(p as Map<String, dynamic>)).toList();
-        setState(() {
-          _products = list;
-          _isLoading = false;
-        });
-      } else {
-        setState(() {
-          _products = [];
-          _isLoading = false;
-        });
+        prods = res.map((p) => Product.fromJson(p as Map<String, dynamic>)).toList();
+      } else if (res is Map && res['products'] is List) {
+        prods = (res['products'] as List).map((p) => Product.fromJson(p as Map<String, dynamic>)).toList();
+      } else if (res is Map && res['data'] is List) {
+        prods = (res['data'] as List).map((p) => Product.fromJson(p as Map<String, dynamic>)).toList();
       }
+
+      setState(() {
+        _products = prods;
+        _isLoading = false;
+      });
     } on ApiException catch (e) {
       setState(() {
         _errorMessage = e.message;

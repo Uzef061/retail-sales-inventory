@@ -26,8 +26,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   Widget build(BuildContext context) {
     final List<Widget> screens = [
       HomeScreen(onNavigateTab: _onTabSelected),
-      const SalesScreen(),
-      const StockScreen(),
+      SalesScreen(isSelected: _currentIndex == 1),
+      StockScreen(isSelected: _currentIndex == 2),
       const PartiesScreen(),
       const MoreScreen(),
     ];

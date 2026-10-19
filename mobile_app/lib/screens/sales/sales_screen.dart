@@ -25,7 +25,8 @@ class CartEntry {
 }
 
 class SalesScreen extends StatefulWidget {
-  const SalesScreen({super.key});
+  final bool isSelected;
+  const SalesScreen({super.key, this.isSelected = false});
 
   @override
   State<SalesScreen> createState() => _SalesScreenState();
@@ -45,6 +46,7 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
   final TextEditingController _taxController = TextEditingController(text: '0');
   final TextEditingController _productSearchController = TextEditingController();
   bool _isLoadingPos = true;
+  String? _posError;
   bool _isCheckingOut = false;
 
   // History State
@@ -64,6 +66,14 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
   }
 
   @override
+  void didUpdateWidget(covariant SalesScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isSelected && !oldWidget.isSelected) {
+      _loadPosData();
+    }
+  }
+
+  @override
   void dispose() {
     _tabController.dispose();
     _discountController.dispose();
@@ -74,19 +84,45 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
   }
 
   Future<void> _loadPosData() async {
-    setState(() => _isLoadingPos = true);
+    setState(() {
+      _isLoadingPos = true;
+      _posError = null;
+    });
+
     try {
-      final pRes = await _apiClient.get(ApiConfig.products);
-      final cRes = await _apiClient.get(ApiConfig.customers);
+      dynamic pRes;
+      dynamic cRes;
+
+      try {
+        pRes = await _apiClient.get(ApiConfig.products);
+      } catch (e) {
+        debugPrint('[SALES] Error fetching products: $e');
+        rethrow;
+      }
+
+      try {
+        cRes = await _apiClient.get(ApiConfig.customers);
+      } catch (e) {
+        debugPrint('[SALES] Non-fatal customer load warning: $e');
+        cRes = <dynamic>[];
+      }
 
       List<Product> prods = [];
       if (pRes is List) {
         prods = pRes.map((p) => Product.fromJson(p as Map<String, dynamic>)).toList();
+      } else if (pRes is Map && pRes['products'] is List) {
+        prods = (pRes['products'] as List).map((p) => Product.fromJson(p as Map<String, dynamic>)).toList();
+      } else if (pRes is Map && pRes['data'] is List) {
+        prods = (pRes['data'] as List).map((p) => Product.fromJson(p as Map<String, dynamic>)).toList();
       }
 
       List<Customer> custs = [];
       if (cRes is List) {
         custs = cRes.map((c) => Customer.fromJson(c as Map<String, dynamic>)).toList();
+      } else if (cRes is Map && cRes['customers'] is List) {
+        custs = (cRes['customers'] as List).map((c) => Customer.fromJson(c as Map<String, dynamic>)).toList();
+      } else if (cRes is Map && cRes['data'] is List) {
+        custs = (cRes['data'] as List).map((c) => Customer.fromJson(c as Map<String, dynamic>)).toList();
       }
 
       setState(() {
@@ -96,9 +132,18 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
           _selectedCustomer = custs.first;
         }
         _isLoadingPos = false;
+        _posError = null;
       });
-    } catch (_) {
-      setState(() => _isLoadingPos = false);
+    } on ApiException catch (e) {
+      setState(() {
+        _posError = e.message;
+        _isLoadingPos = false;
+      });
+    } catch (e) {
+      setState(() {
+        _posError = 'Could not load products. Please check connection.';
+        _isLoadingPos = false;
+      });
     }
   }
 
@@ -275,6 +320,16 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
     return Scaffold(
       appBar: AppBar(
         title: const Text('Sales & POS'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Refresh',
+            onPressed: () {
+              _loadPosData();
+              _loadSalesHistory();
+            },
+          ),
+        ],
         bottom: TabBar(
           controller: _tabController,
           indicatorColor: AppTheme.primary,
@@ -320,11 +375,40 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
       return const Center(child: CircularProgressIndicator(color: AppTheme.primary));
     }
 
+    if (_posError != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.cloud_off, size: 48, color: AppTheme.textMuted),
+              const SizedBox(height: 12),
+              Text(
+                _posError!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 14, color: AppTheme.textSecondary),
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                onPressed: _loadPosData,
+                icon: const Icon(Icons.refresh, size: 18),
+                label: const Text('Try Again'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     final query = _productSearchController.text.toLowerCase().trim();
     final availableProducts = _products.where((p) {
-      return query.isEmpty ||
-          p.name.toLowerCase().contains(query) ||
-          p.category.toLowerCase().contains(query);
+      if (!p.isActive) return false;
+      if (query.isEmpty) return true;
+      final nameMatches = p.name.toLowerCase().contains(query);
+      final categoryMatches = p.category.toLowerCase().contains(query);
+      final skuMatches = p.sku != null && p.sku!.toLowerCase().contains(query);
+      return nameMatches || categoryMatches || skuMatches;
     }).toList();
 
     return Column(
@@ -377,41 +461,76 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
         // Products Grid / Quick Select
         Expanded(
           flex: 5,
-          child: availableProducts.isEmpty
-              ? const Center(child: Text('No products available', style: TextStyle(color: AppTheme.textSecondary)))
-              : ListView.separated(
-                  padding: const EdgeInsets.all(12),
-                  itemCount: availableProducts.length,
-                  separatorBuilder: (_, _) => const SizedBox(height: 8),
-                  itemBuilder: (context, idx) {
-                    final p = availableProducts[idx];
-                    final inCart = _cart.any((c) => c.product.id == p.id);
-
-                    return Card(
-                      child: ListTile(
-                        dense: true,
-                        title: Text(p.name, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
-                        subtitle: Text(
-                          'Stock: ${p.stock} • ₹${p.sellingPrice.toStringAsFixed(0)}',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: p.isOutOfStock ? AppTheme.error : AppTheme.textSecondary,
-                            fontWeight: p.isOutOfStock ? FontWeight.w600 : FontWeight.normal,
-                          ),
-                        ),
-                        trailing: ElevatedButton.icon(
-                          onPressed: p.stock <= 0 ? null : () => _addToCart(p),
-                          icon: Icon(inCart ? Icons.add_circle : Icons.add_shopping_cart, size: 16),
-                          label: Text(inCart ? 'Add More' : 'Add', style: const TextStyle(fontSize: 12)),
-                          style: ElevatedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                            minimumSize: Size.zero,
+          child: RefreshIndicator(
+            onRefresh: _loadPosData,
+            color: AppTheme.primary,
+            child: availableProducts.isEmpty
+                ? ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    children: [
+                      SizedBox(
+                        height: 240,
+                        child: Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.inventory_2_outlined, size: 44, color: AppTheme.textMuted),
+                              const SizedBox(height: 12),
+                              Text(
+                                _productSearchController.text.trim().isNotEmpty
+                                    ? 'No products matching "${_productSearchController.text.trim()}"'
+                                    : 'No products available',
+                                style: const TextStyle(color: AppTheme.textSecondary, fontSize: 14),
+                              ),
+                              if (_productSearchController.text.trim().isNotEmpty) ...[
+                                const SizedBox(height: 8),
+                                TextButton.icon(
+                                  onPressed: () => setState(() => _productSearchController.clear()),
+                                  icon: const Icon(Icons.clear, size: 16),
+                                  label: const Text('Clear Search'),
+                                ),
+                              ],
+                            ],
                           ),
                         ),
                       ),
-                    );
-                  },
-                ),
+                    ],
+                  )
+                : ListView.separated(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.all(12),
+                    itemCount: availableProducts.length,
+                    separatorBuilder: (_, _) => const SizedBox(height: 8),
+                    itemBuilder: (context, idx) {
+                      final p = availableProducts[idx];
+                      final inCart = _cart.any((c) => c.product.id == p.id);
+
+                      return Card(
+                        child: ListTile(
+                          dense: true,
+                          title: Text(p.name, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+                          subtitle: Text(
+                            'Stock: ${p.stock} • ₹${p.sellingPrice.toStringAsFixed(0)}${p.sku != null && p.sku!.isNotEmpty ? " • SKU: ${p.sku}" : ""}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: p.isOutOfStock ? AppTheme.error : AppTheme.textSecondary,
+                              fontWeight: p.isOutOfStock ? FontWeight.w600 : FontWeight.normal,
+                            ),
+                          ),
+                          trailing: ElevatedButton.icon(
+                            onPressed: p.stock <= 0 ? null : () => _addToCart(p),
+                            icon: Icon(inCart ? Icons.add_circle : Icons.add_shopping_cart, size: 16),
+                            label: Text(inCart ? 'Add More' : 'Add', style: const TextStyle(fontSize: 12)),
+                            style: ElevatedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                              minimumSize: Size.zero,
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
         ),
 
         // Cart Drawer Section
