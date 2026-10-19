@@ -62,11 +62,11 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   void _navigateAfterAuth(User user) {
-    // Only genuinely new users (first-time Google sign-in or uncompleted onboarding)
+    // Only genuinely new users (first-time Google sign-in who haven't completed onboarding)
     // trigger the introductory welcome animation, which then smoothly transitions to OnboardingScreen.
-    final bool isNew = user.isNewUser || !user.hasCompletedOnboarding;
+    final bool isFirstTimeUser = !user.hasCompletedOnboarding;
 
-    if (isNew) {
+    if (isFirstTimeUser) {
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
           builder: (_) => SplashScreen(authService: AuthService()),

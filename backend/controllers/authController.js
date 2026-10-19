@@ -163,6 +163,8 @@ exports.googleLogin = async (req, res) => {
       $or: [{ googleId }, { email: email.toLowerCase() }]
     });
 
+    let isNewUser = false;
+
     if (user) {
       // Link Google ID if not already linked (only if email was verified by Google)
       if (!user.googleId && email_verified) {
@@ -177,6 +179,7 @@ exports.googleLogin = async (req, res) => {
       await user.save();
     } else {
       // Create new tenant user account
+      isNewUser = true;
       user = await User.create({
         googleId,
         email: email.toLowerCase(),
@@ -207,6 +210,7 @@ exports.googleLogin = async (req, res) => {
       success: true,
       message: 'Google login successful',
       token: sessionToken,
+      isNewUser: Boolean(isNewUser),
       user: {
         id: user._id,
         username: user.username,
@@ -215,6 +219,7 @@ exports.googleLogin = async (req, res) => {
         avatar: user.avatar,
         role: user.role || 'ADMIN',
         hasCompletedOnboarding: Boolean(user.hasCompletedOnboarding),
+        isNewUser: Boolean(isNewUser),
         businessId: profile._id
       }
     });

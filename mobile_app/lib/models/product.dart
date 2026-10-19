@@ -25,6 +25,7 @@ class Product {
 
   bool get isLowStock => stock <= reorderLevel;
   bool get isOutOfStock => stock <= 0;
+  String? get barcode => sku;
   double get profitPerUnit => sellingPrice - costPrice;
   double get marginPercent =>
       sellingPrice > 0 ? ((profitPerUnit / sellingPrice) * 100) : 0.0;
@@ -47,7 +48,7 @@ class Product {
       stock: (json['stock'] as num?)?.toInt() ?? 0,
       reorderLevel: (json['reorderLevel'] as num?)?.toInt() ?? 10,
       reorderQuantity: (json['reorderQuantity'] as num?)?.toInt() ?? 20,
-      sku: json['sku']?.toString(),
+      sku: json['sku']?.toString() ?? json['barcode']?.toString(),
       isActive: json['isActive'] ?? true,
     );
   }

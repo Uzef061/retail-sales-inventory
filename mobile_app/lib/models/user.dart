@@ -22,14 +22,19 @@ class User {
   bool get isAdmin => role.toUpperCase() == 'ADMIN';
 
   factory User.fromJson(Map<String, dynamic> json) {
+    final rawOnboarding = json['hasCompletedOnboarding'];
+    final username = json['username']?.toString() ?? '';
+    final isBuiltInAdmin = username.toLowerCase() == 'admin' || username.toLowerCase() == 'cashier';
+    final bool onboarded = isBuiltInAdmin || (rawOnboarding != false);
+
     return User(
       id: json['id']?.toString() ?? json['_id']?.toString() ?? '',
-      username: json['username']?.toString() ?? '',
-      name: json['name']?.toString() ?? json['username']?.toString() ?? 'User',
+      username: username,
+      name: json['name']?.toString() ?? (username.isNotEmpty ? username : 'User'),
       role: json['role']?.toString().toUpperCase() ?? 'ADMIN',
       email: json['email']?.toString(),
       avatar: json['avatar']?.toString(),
-      hasCompletedOnboarding: json['hasCompletedOnboarding'] != false,
+      hasCompletedOnboarding: onboarded,
       businessId: json['businessId']?.toString(),
     );
   }

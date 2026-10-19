@@ -234,7 +234,11 @@ class AuthService extends ChangeNotifier {
 
     User user;
     if (respMap['user'] is Map) {
-      user = User.fromJson(Map<String, dynamic>.from(respMap['user'] as Map));
+      final userMap = Map<String, dynamic>.from(respMap['user'] as Map);
+      if (respMap.containsKey('hasCompletedOnboarding') && !userMap.containsKey('hasCompletedOnboarding')) {
+        userMap['hasCompletedOnboarding'] = respMap['hasCompletedOnboarding'];
+      }
+      user = User.fromJson(userMap);
     } else {
       final uName = respMap['username']?.toString() ?? fallbackUsername;
       user = User(
@@ -242,6 +246,7 @@ class AuthService extends ChangeNotifier {
         username: uName,
         name: uName.toUpperCase(),
         role: uName.toLowerCase().contains('cashier') ? 'CASHIER' : 'ADMIN',
+        hasCompletedOnboarding: respMap['hasCompletedOnboarding'] == true,
       );
     }
 
