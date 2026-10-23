@@ -15,7 +15,7 @@ if (!process.env.MONGODB_URI) {
 const connectDB = require('./database/db');
 const seedData = require('./database/seed');
 const { ensureDemoUsers } = seedData;
-const { protect, authorize, optionalProtect } = require('./middleware/authMiddleware');
+const { protect, authorize, optionalProtect, validateSecurityConfig } = require('./middleware/authMiddleware');
 
 const authRoutes = require('./routes/auth');
 const productRoutes = require('./routes/products');
@@ -61,11 +61,15 @@ app.use('/api/notes', noteRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/ledger', ledgerRoutes);
 
-// Secure Demo Reset Endpoint for Viva Demo
+// Secure Demo Reset Endpoint
 const handleDemoReset = async (req, res) => {
   try {
-    if (process.env.DEMO_MODE === 'false') {
-      return res.status(403).json({ success: false, message: 'Demo reset is disabled in production mode.' });
+    if (process.env.NODE_ENV === 'production' || process.env.DEMO_MODE !== 'true') {
+      return res.status(403).json({
+        success: false,
+        message: 'Demo reset and database seeding are disabled in production mode.',
+        errorCode: 'DEMO_DISABLED'
+      });
     }
     const result = await seedData();
     res.status(200).json({ success: true, ...result });
@@ -74,8 +78,8 @@ const handleDemoReset = async (req, res) => {
   }
 };
 
-app.post('/api/admin/demo/reset', optionalProtect, handleDemoReset);
-app.post('/api/seed', optionalProtect, handleDemoReset);
+app.post('/api/admin/demo/reset', protect, authorize('ADMIN'), handleDemoReset);
+app.post('/api/seed', protect, authorize('ADMIN'), handleDemoReset);
 
 // 2. Serve Built Frontend Static Files (Single Host Architecture)
 const frontendDistPath = path.join(__dirname, '../frontend/dist');
@@ -116,6 +120,16 @@ const checkPortAvailable = (port) => {
 
 // Start Server only after Database connection succeeds
 const startServer = async () => {
+  try {
+    validateSecurityConfig();
+  } catch (secErr) {
+    console.error(`\n===============================================================`);
+    console.error(`[SECURITY ERROR] Application startup halted:`);
+    console.error(secErr.message);
+    console.error(`===============================================================\n`);
+    process.exit(1);
+  }
+
   const isAvailable = await checkPortAvailable(PORT);
   if (!isAvailable) {
     console.error(`\n===============================================================`);

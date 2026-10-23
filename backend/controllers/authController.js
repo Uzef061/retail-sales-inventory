@@ -2,12 +2,12 @@ const User = require('../models/User');
 const BusinessProfile = require('../models/BusinessProfile');
 const jwt = require('jsonwebtoken');
 const { OAuth2Client } = require('google-auth-library');
-const { JWT_SECRET } = require('../middleware/authMiddleware');
+const { getJwtSecret } = require('../middleware/authMiddleware');
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 const generateToken = (id) => {
-  return jwt.sign({ id }, JWT_SECRET, { expiresIn: '30d' });
+  return jwt.sign({ id }, getJwtSecret(), { expiresIn: '30d' });
 };
 
 // POST /api/auth/login (Standard Username & Password Login)

@@ -17,6 +17,36 @@ const normalizePaymentMethod = (pm) => {
   return 'CASH';
 };
 
+/**
+ * Executes a callback within a MongoDB session/transaction when replica sets are available.
+ * If transactions are not supported by the deployed MongoDB instance (e.g. standalone test mode),
+ * it safely executes the callback with null session.
+ */
+const withOptionalTransaction = async (operation) => {
+  const session = await mongoose.startSession();
+  try {
+    let result;
+    try {
+      await session.withTransaction(async () => {
+        result = await operation(session);
+      });
+      return result;
+    } catch (txErr) {
+      if (
+        txErr.message &&
+        (txErr.message.includes('Transaction numbers are only allowed') ||
+         txErr.message.includes('replica set member') ||
+         txErr.message.includes('standalone'))
+      ) {
+        return await operation(null);
+      }
+      throw txErr;
+    }
+  } finally {
+    session.endSession();
+  }
+};
+
 // GET /api/purchases
 exports.getPurchases = async (req, res) => {
   try {
@@ -54,7 +84,7 @@ exports.getPurchaseById = async (req, res) => {
   }
 };
 
-// POST /api/purchases (Create Purchase Order, Increment Stock, Link Supplier & Payment)
+// POST /api/purchases (Create Purchase Order, Increment Stock, Link Supplier & Payment Atomically)
 exports.createPurchase = async (req, res) => {
   try {
     const {
@@ -88,7 +118,7 @@ exports.createPurchase = async (req, res) => {
         idempotencyKey,
         ...getTenantQuery(req)
       })
-        .populate('supplier', 'name phone email contactPerson companyName')
+        .populate('supplier', 'name phone email contactPerson companyName address')
         .populate('product', 'name category costPrice sellingPrice stock')
         .populate('items.product', 'name category costPrice sellingPrice stock')
         .populate('createdById', 'name username');
@@ -102,7 +132,7 @@ exports.createPurchase = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Amount paid cannot be negative.' });
     }
 
-    // 1. Supplier resolution (Find by ID or find/create by phone/name)
+    // 1. Supplier resolution & strict tenant ownership verification
     let targetSupplier;
     let targetSupplierId = supplierId || supplier;
     if (typeof targetSupplierId === 'object' && targetSupplierId !== null) {
@@ -111,6 +141,13 @@ exports.createPurchase = async (req, res) => {
 
     if (targetSupplierId && mongoose.Types.ObjectId.isValid(targetSupplierId)) {
       targetSupplier = await Supplier.findById(targetSupplierId);
+      if (targetSupplier && !hasTenantAccess(targetSupplier, req)) {
+        return res.status(403).json({
+          success: false,
+          message: 'Supplier belongs to another store or business.',
+          errorCode: 'FORBIDDEN_SUPPLIER'
+        });
+      }
     }
 
     if (!targetSupplier && supplierPhone && String(supplierPhone).trim()) {
@@ -118,27 +155,6 @@ exports.createPurchase = async (req, res) => {
         ...getTenantQuery(req),
         phone: String(supplierPhone).trim()
       });
-    }
-
-    if (!targetSupplier) {
-      const sPhone = (supplierPhone || (typeof supplier === 'string' && !mongoose.Types.ObjectId.isValid(supplier) ? supplier : '')).trim();
-      const sName = (supplierName || (typeof supplier === 'string' && !mongoose.Types.ObjectId.isValid(supplier) ? 'Supplier' : '')).trim();
-
-      if (sName || sPhone) {
-        targetSupplier = await Supplier.create({
-          userId: req.user?._id,
-          name: sName || (sPhone ? `Supplier (${sPhone})` : 'General Supplier'),
-          phone: sPhone || 'N/A',
-          email: supplierEmail ? supplierEmail.trim() : '',
-          address: supplierAddress ? supplierAddress.trim() : '',
-          isActive: true
-        });
-      }
-    }
-
-    if (targetSupplier && targetSupplier.isActive === false) {
-      targetSupplier.isActive = true;
-      await targetSupplier.save();
     }
 
     // 2. Parse Line Items (Support both multi-item and legacy single-item)
@@ -162,16 +178,20 @@ exports.createPurchase = async (req, res) => {
             message: 'Each purchase item requires a valid product and positive quantity.'
           });
         }
+        if (isNaN(cost) || cost < 0) {
+          return res.status(400).json({
+            success: false,
+            message: 'Item cost price cannot be negative.'
+          });
+        }
 
         let prodDoc = null;
         if (mongoose.Types.ObjectId.isValid(prodId)) {
           prodDoc = await Product.findById(prodId);
-        }
-        if (!prodDoc) {
-          prodDoc = await Product.findOne({
-            $or: [{ sku: prodId }, { name: prodId }],
-            ...getTenantQuery(req)
-          });
+        } else {
+          prodDoc = await Product.findOne(
+            getTenantQuery(req, { $or: [{ sku: prodId }, { name: prodId }] })
+          );
         }
 
         if (!prodDoc || prodDoc.isActive === false || !hasTenantAccess(prodDoc, req)) {
@@ -216,12 +236,10 @@ exports.createPurchase = async (req, res) => {
       let targetProduct = null;
       if (mongoose.Types.ObjectId.isValid(targetProductId)) {
         targetProduct = await Product.findById(targetProductId);
-      }
-      if (!targetProduct) {
-        targetProduct = await Product.findOne({
-          $or: [{ sku: targetProductId }, { name: targetProductId }],
-          ...getTenantQuery(req)
-        });
+      } else {
+        targetProduct = await Product.findOne(
+          getTenantQuery(req, { $or: [{ sku: targetProductId }, { name: targetProductId }] })
+        );
       }
 
       if (!targetProduct || targetProduct.isActive === false || !hasTenantAccess(targetProduct, req)) {
@@ -254,92 +272,129 @@ exports.createPurchase = async (req, res) => {
     const discountVal = Number(discount) || 0;
     const taxVal = Number(tax) || 0;
     const grandTotalCalc = Math.max(0, subtotalCalc - discountVal + taxVal);
-
-    const refNum = referenceNumber && referenceNumber.trim() ? referenceNumber.trim() : `PO-${Date.now().toString().slice(-8)}`;
-
-    // 4. Atomically Increment Inventory Stock & Record Movement Ledger
-    for (const item of normalizedItems) {
-      const prevDoc = await Product.findOneAndUpdate(
-        { _id: item.product, ...getTenantQuery(req) },
-        {
-          $inc: { stock: item.quantity },
-          ...(updateProductCost ? { costPrice: item.costPrice } : {})
-        },
-        { new: false }
-      );
-
-      const prevStock = prevDoc ? prevDoc.stock : 0;
-      await InventoryTransaction.create({
-        userId: req.user?._id,
-        product: item.product,
-        type: 'PURCHASE',
-        quantity: item.quantity,
-        previousStock: prevStock,
-        newStock: prevStock + item.quantity,
-        referenceId: refNum,
-        notes: `Restock purchase order ${refNum} (${item.quantity} units @ ₹${item.costPrice})`,
-        createdById: req.user?._id
-      });
-    }
-
-    // 5. Payment Handling (Scenarios: Credit / Full Paid / Partial Paid)
     const paidAmount = Number(amountPaid) || 0;
     const effectivePaymentMethod = normalizePaymentMethod(paymentMethod);
-    let paymentStatus = 'UNPAID';
+    const refNum = referenceNumber && referenceNumber.trim() ? referenceNumber.trim() : `PO-${Date.now().toString().slice(-8)}`;
 
-    if (paidAmount >= grandTotalCalc) {
+    let paymentStatus = 'UNPAID';
+    if (paidAmount >= grandTotalCalc && grandTotalCalc > 0) {
       paymentStatus = 'PAID';
     } else if (paidAmount > 0) {
       paymentStatus = 'PARTIALLY_PAID';
+    } else if (grandTotalCalc === 0 && paidAmount === 0) {
+      paymentStatus = 'PAID';
     }
 
-    // If actual payment occurred at purchase time, record PaymentTransaction
-    if (paidAmount > 0 && targetSupplier) {
-      await PaymentTransaction.create({
+    // 4. Atomic Execution via Transaction
+    const createdPurchase = await withOptionalTransaction(async (session) => {
+      // 4a. If supplier does not exist yet, auto-create inside session
+      if (!targetSupplier) {
+        const sPhone = (supplierPhone || (typeof supplier === 'string' && !mongoose.Types.ObjectId.isValid(supplier) ? supplier : '')).trim();
+        const sName = (supplierName || (typeof supplier === 'string' && !mongoose.Types.ObjectId.isValid(supplier) ? 'Supplier' : '')).trim();
+
+        if (sName || sPhone) {
+          const newSup = new Supplier({
+            userId: req.user?._id,
+            businessId: req.user?.businessId,
+            name: sName || (sPhone ? `Supplier (${sPhone})` : 'General Supplier'),
+            phone: sPhone || 'N/A',
+            email: supplierEmail ? supplierEmail.trim() : '',
+            address: supplierAddress ? supplierAddress.trim() : '',
+            isActive: true
+          });
+          targetSupplier = await newSup.save(session ? { session } : undefined);
+        }
+      } else if (targetSupplier && targetSupplier.isActive === false) {
+        targetSupplier.isActive = true;
+        await targetSupplier.save(session ? { session } : undefined);
+      }
+
+      // 4b. Atomically Increment Inventory Stock & Record Movement Ledger
+      // Product accepted by validation MUST be the exact product successfully updated!
+      for (const item of normalizedItems) {
+        const updateOpts = { new: false };
+        if (session) updateOpts.session = session;
+
+        const prevDoc = await Product.findOneAndUpdate(
+          { _id: item.product },
+          {
+            $inc: { stock: item.quantity },
+            ...(updateProductCost ? { costPrice: item.costPrice } : {})
+          },
+          updateOpts
+        );
+
+        if (!prevDoc) {
+          throw new Error(`Failed to update stock for product "${item.productDoc.name}": record not found or inaccessible.`);
+        }
+
+        const prevStock = prevDoc.stock;
+        const invTx = new InventoryTransaction({
+          userId: req.user?._id,
+          businessId: req.user?.businessId,
+          product: item.product,
+          type: 'PURCHASE',
+          quantity: item.quantity,
+          previousStock: prevStock,
+          newStock: prevStock + item.quantity,
+          referenceId: refNum,
+          notes: `Restock purchase order ${refNum} (${item.quantity} units @ ₹${item.costPrice})`,
+          createdById: req.user?._id
+        });
+        await invTx.save(session ? { session } : undefined);
+      }
+
+      // 4c. Record PaymentTransaction if payment was made at purchase time
+      if (paidAmount > 0 && targetSupplier) {
+        const pTx = new PaymentTransaction({
+          userId: req.user?._id,
+          businessId: req.user?.businessId,
+          type: 'GIVE',
+          partyType: 'SUPPLIER',
+          partyId: targetSupplier._id,
+          partyModel: 'Supplier',
+          partyName: targetSupplier.name,
+          amount: paidAmount,
+          paymentMethod: effectivePaymentMethod,
+          transactionDate: purchaseDate ? new Date(purchaseDate) : new Date(),
+          referenceNumber: refNum,
+          notes: `Payment for purchase order ${refNum}`,
+          createdById: req.user?._id
+        });
+        await pTx.save(session ? { session } : undefined);
+      }
+
+      // 4d. Create Purchase Record
+      const firstItem = normalizedItems[0];
+      const purchase = new Purchase({
         userId: req.user?._id,
-        type: 'GIVE',
-        partyType: 'SUPPLIER',
-        partyId: targetSupplier._id,
-        partyModel: 'Supplier',
-        partyName: targetSupplier.name,
-        amount: paidAmount,
+        businessId: req.user?.businessId,
+        supplier: targetSupplier ? targetSupplier._id : undefined,
+        product: firstItem.product,
+        items: normalizedItems.map(({ product, quantity, costPrice, unitCostPrice, discount, tax, totalCost }) => ({
+          product, quantity, costPrice, unitCostPrice, discount, tax, totalCost
+        })),
+        quantity: normalizedItems.reduce((sum, i) => sum + i.quantity, 0),
+        costPrice: firstItem.costPrice,
+        subtotal: subtotalCalc,
+        discount: discountVal,
+        tax: taxVal,
+        totalCost: grandTotalCalc,
+        grandTotal: grandTotalCalc,
+        amountPaid: paidAmount,
+        paymentStatus,
         paymentMethod: effectivePaymentMethod,
-        transactionDate: purchaseDate ? new Date(purchaseDate) : new Date(),
+        purchaseDate: purchaseDate ? new Date(purchaseDate) : new Date(),
         referenceNumber: refNum,
-        notes: `Payment for purchase order ${refNum}`,
+        notes: notes ? String(notes).trim() : '',
+        idempotencyKey: idempotencyKey || undefined,
         createdById: req.user?._id
       });
-    }
 
-    // 6. Create Purchase Record
-    const firstItem = normalizedItems[0];
-    const purchase = new Purchase({
-      userId: req.user?._id,
-      supplier: targetSupplier ? targetSupplier._id : undefined,
-      product: firstItem.product,
-      items: normalizedItems.map(({ product, quantity, costPrice, unitCostPrice, discount, tax, totalCost }) => ({
-        product, quantity, costPrice, unitCostPrice, discount, tax, totalCost
-      })),
-      quantity: normalizedItems.reduce((sum, i) => sum + i.quantity, 0),
-      costPrice: firstItem.costPrice,
-      subtotal: subtotalCalc,
-      discount: discountVal,
-      tax: taxVal,
-      totalCost: grandTotalCalc,
-      grandTotal: grandTotalCalc,
-      amountPaid: paidAmount,
-      paymentStatus,
-      paymentMethod: effectivePaymentMethod,
-      purchaseDate: purchaseDate ? new Date(purchaseDate) : new Date(),
-      referenceNumber: refNum,
-      notes: notes ? String(notes).trim() : '',
-      idempotencyKey: idempotencyKey || undefined,
-      createdById: req.user?._id
+      return await purchase.save(session ? { session } : undefined);
     });
 
-    const savedPurchase = await purchase.save();
-
-    const populatedPurchase = await Purchase.findById(savedPurchase._id)
+    const populatedPurchase = await Purchase.findById(createdPurchase._id)
       .populate('supplier', 'name phone email contactPerson companyName address')
       .populate('product', 'name category costPrice sellingPrice stock')
       .populate('items.product', 'name category costPrice sellingPrice stock')
@@ -347,6 +402,19 @@ exports.createPurchase = async (req, res) => {
 
     res.status(201).json(populatedPurchase);
   } catch (error) {
+    if (error.code === 11000 && req.body.idempotencyKey) {
+      const existing = await Purchase.findOne({
+        idempotencyKey: req.body.idempotencyKey,
+        ...getTenantQuery(req)
+      })
+        .populate('supplier', 'name phone email contactPerson companyName address')
+        .populate('product', 'name category costPrice sellingPrice stock')
+        .populate('items.product', 'name category costPrice sellingPrice stock')
+        .populate('createdById', 'name username');
+      if (existing) {
+        return res.status(200).json(existing);
+      }
+    }
     console.error('Error creating purchase order:', error);
     res.status(500).json({ success: false, message: 'Error creating purchase order', error: error.message });
   }
@@ -446,45 +514,58 @@ exports.returnPurchase = async (req, res) => {
           });
         }
       }
-    } else {
-      // Default: full return of all purchase items
-      let sourceItems = [];
-      if (Array.isArray(purchase.items) && purchase.items.length > 0) {
-        sourceItems = purchase.items;
-      } else if (purchase.product) {
-        sourceItems = [{ product: purchase.product, quantity: purchase.quantity, costPrice: purchase.costPrice }];
-      }
-
-      for (const item of sourceItems) {
-        const prod = await Product.findById(item.product);
+    } else if (purchase.items && purchase.items.length > 0) {
+      // Return all purchase items if not explicitly itemized
+      for (const pItem of purchase.items) {
+        const prod = await Product.findById(pItem.product);
         if (prod && hasTenantAccess(prod, req)) {
-          const qty = Number(item.quantity);
-          if (prod.stock < qty) {
+          if (prod.stock < pItem.quantity) {
             return res.status(400).json({
               success: false,
-              message: `Cannot return items: Current stock for "${prod.name}" (${prod.stock}) is less than returned quantity (${qty}). Items may have already been sold.`,
+              message: `Cannot return purchase: Current stock for "${prod.name}" (${prod.stock}) is less than returned quantity (${pItem.quantity}).`,
               errorCode: 'INSUFFICIENT_STOCK_FOR_RETURN'
             });
           }
-          const cost = Number(item.costPrice || 0);
-          const lineTotal = qty * cost;
-          calculatedReturnAmount += lineTotal;
           itemsToDeduct.push({
             product: prod._id,
             productDoc: prod,
-            quantity: qty,
-            costPrice: cost,
-            unitCostPrice: cost,
-            totalCost: lineTotal
+            quantity: pItem.quantity,
+            costPrice: pItem.costPrice,
+            unitCostPrice: pItem.unitCostPrice || pItem.costPrice,
+            totalCost: pItem.totalCost
+          });
+          calculatedReturnAmount += pItem.totalCost;
+        }
+      }
+    } else if (purchase.product) {
+      const prod = await Product.findById(purchase.product);
+      if (prod && hasTenantAccess(prod, req)) {
+        if (prod.stock < purchase.quantity) {
+          return res.status(400).json({
+            success: false,
+            message: `Cannot return purchase: Current stock for "${prod.name}" (${prod.stock}) is less than returned quantity (${purchase.quantity}).`,
+            errorCode: 'INSUFFICIENT_STOCK_FOR_RETURN'
           });
         }
+        itemsToDeduct.push({
+          product: prod._id,
+          productDoc: prod,
+          quantity: purchase.quantity,
+          costPrice: purchase.costPrice,
+          unitCostPrice: purchase.costPrice,
+          totalCost: purchase.totalCost
+        });
+        calculatedReturnAmount = purchase.totalCost;
       }
     }
 
-    const requestedAmount = returnAmount !== undefined ? Number(returnAmount) : (calculatedReturnAmount > 0 ? calculatedReturnAmount : maxReturnable);
-
+    const requestedAmount = returnAmount !== undefined ? Number(returnAmount) : (calculatedReturnAmount || maxReturnable);
     if (isNaN(requestedAmount) || requestedAmount <= 0) {
-      return res.status(400).json({ success: false, message: 'Return amount must be greater than 0.' });
+      return res.status(400).json({
+        success: false,
+        message: 'Return amount must be greater than 0.',
+        errorCode: 'INVALID_RETURN_AMOUNT'
+      });
     }
 
     if (requestedAmount > maxReturnable) {
@@ -496,80 +577,95 @@ exports.returnPurchase = async (req, res) => {
     }
 
     const returnRef = `PR-${Date.now().toString().slice(-8)}`;
-
-    // 2. Deduct Returned Goods from Inventory Stock
-    for (const item of itemsToDeduct) {
-      const prevDoc = await Product.findOneAndUpdate(
-        { _id: item.product, ...getTenantQuery(req) },
-        { $inc: { stock: -item.quantity } },
-        { new: false }
-      );
-      const prevStock = prevDoc ? prevDoc.stock : item.productDoc.stock;
-
-      await InventoryTransaction.create({
-        userId: req.user?._id,
-        product: item.product,
-        type: 'ADJUSTMENT',
-        quantity: -item.quantity,
-        previousStock: prevStock,
-        newStock: prevStock - item.quantity,
-        referenceId: returnRef,
-        notes: `Returned to supplier for PO ${purchase.referenceNumber || purchase._id} (${item.quantity} units)`,
-        createdById: req.user?._id
-      });
-    }
-
-    // 3. Create PurchaseReturn Document
     const refundCashAmount = refundMode === 'REFUND_RECEIVED' ? requestedAmount : 0;
 
-    const purchaseReturn = new PurchaseReturn({
-      userId: req.user?._id,
-      purchaseId: purchase._id,
-      referenceNumber: returnRef,
-      originalReferenceNumber: purchase.referenceNumber || '',
-      supplier: purchase.supplier?._id || purchase.supplier,
-      returnDate: new Date(),
-      amount: requestedAmount,
-      refundMode,
-      refundAmount: refundCashAmount,
-      items: itemsToDeduct.map(({ product, quantity, costPrice, unitCostPrice, totalCost }) => ({
-        product, quantity, costPrice, unitCostPrice, totalCost, deductedFromStock: true
-      })),
-      reason: reason ? String(reason).trim() : 'Return to supplier',
-      deductStock: true,
-      idempotencyKey: idempotencyKey || undefined,
-      createdById: req.user?._id
-    });
+    // 2. Atomic Return Execution
+    const resultReturn = await withOptionalTransaction(async (session) => {
+      // 2a. Deduct Returned Goods from Inventory Stock
+      for (const item of itemsToDeduct) {
+        const updateOpts = { new: false };
+        if (session) updateOpts.session = session;
 
-    await purchaseReturn.save();
+        const prevDoc = await Product.findOneAndUpdate(
+          { _id: item.product },
+          { $inc: { stock: -item.quantity } },
+          updateOpts
+        );
 
-    // 4. Update Purchase Record returnedAmount and status
-    purchase.returnedAmount = previousReturned + requestedAmount;
-    if (purchase.returnedAmount >= purchaseTotal) {
-      purchase.status = 'RETURNED';
-    } else {
-      purchase.status = 'PARTIALLY_RETURNED';
-    }
-    await purchase.save();
+        if (!prevDoc) {
+          throw new Error(`Failed to deduct stock for product "${item.productDoc.name}": record not found.`);
+        }
 
-    // 5. If Cash Refund was received from Supplier, record PaymentTransaction
-    if (refundCashAmount > 0 && purchase.supplier) {
-      const sName = purchase.supplier.name || 'Supplier';
-      await PaymentTransaction.create({
+        const prevStock = prevDoc.stock;
+        const invTx = new InventoryTransaction({
+          userId: req.user?._id,
+          businessId: req.user?.businessId,
+          product: item.product,
+          type: 'ADJUSTMENT',
+          quantity: -item.quantity,
+          previousStock: prevStock,
+          newStock: prevStock - item.quantity,
+          referenceId: returnRef,
+          notes: `Returned to supplier for PO ${purchase.referenceNumber || purchase._id} (${item.quantity} units)`,
+          createdById: req.user?._id
+        });
+        await invTx.save(session ? { session } : undefined);
+      }
+
+      // 2b. Create PurchaseReturn Document
+      const purchaseReturn = new PurchaseReturn({
         userId: req.user?._id,
-        type: 'RECEIVE',
-        partyType: 'SUPPLIER',
-        partyId: purchase.supplier._id || purchase.supplier,
-        partyModel: 'Supplier',
-        partyName: sName,
-        amount: refundCashAmount,
-        paymentMethod: purchase.paymentMethod || 'CASH',
-        transactionDate: new Date(),
+        businessId: req.user?.businessId,
+        purchaseId: purchase._id,
         referenceNumber: returnRef,
-        notes: `Refund from supplier for purchase return ${returnRef} (PO: ${purchase.referenceNumber || purchase._id})`,
+        originalReferenceNumber: purchase.referenceNumber || '',
+        supplier: purchase.supplier?._id || purchase.supplier,
+        returnDate: new Date(),
+        amount: requestedAmount,
+        refundMode,
+        refundAmount: refundCashAmount,
+        items: itemsToDeduct.map(({ product, quantity, costPrice, unitCostPrice, totalCost }) => ({
+          product, quantity, costPrice, unitCostPrice, totalCost, deductedFromStock: true
+        })),
+        reason: reason ? String(reason).trim() : 'Return to supplier',
+        deductStock: true,
+        idempotencyKey: idempotencyKey || undefined,
         createdById: req.user?._id
       });
-    }
+      await purchaseReturn.save(session ? { session } : undefined);
+
+      // 2c. Update Purchase Record returnedAmount and status
+      purchase.returnedAmount = previousReturned + requestedAmount;
+      if (purchase.returnedAmount >= purchaseTotal) {
+        purchase.status = 'RETURNED';
+      } else {
+        purchase.status = 'PARTIALLY_RETURNED';
+      }
+      await purchase.save(session ? { session } : undefined);
+
+      // 2d. If Cash Refund was received from Supplier, record PaymentTransaction
+      if (refundCashAmount > 0 && purchase.supplier) {
+        const sName = purchase.supplier.name || 'Supplier';
+        const pTx = new PaymentTransaction({
+          userId: req.user?._id,
+          businessId: req.user?.businessId,
+          type: 'RECEIVE',
+          partyType: 'SUPPLIER',
+          partyId: purchase.supplier._id || purchase.supplier,
+          partyModel: 'Supplier',
+          partyName: sName,
+          amount: refundCashAmount,
+          paymentMethod: purchase.paymentMethod || 'CASH',
+          transactionDate: new Date(),
+          referenceNumber: returnRef,
+          notes: `Refund from supplier for purchase return ${returnRef} (PO: ${purchase.referenceNumber || purchase._id})`,
+          createdById: req.user?._id
+        });
+        await pTx.save(session ? { session } : undefined);
+      }
+
+      return purchaseReturn;
+    });
 
     const updatedPurchase = await Purchase.findById(purchase._id)
       .populate('supplier', 'name phone email contactPerson companyName address')
@@ -579,7 +675,7 @@ exports.returnPurchase = async (req, res) => {
     res.status(200).json({
       success: true,
       message: 'Purchase return processed successfully and inventory adjusted.',
-      return: purchaseReturn,
+      return: resultReturn,
       purchase: updatedPurchase
     });
   } catch (error) {
@@ -617,57 +713,73 @@ exports.deletePurchaseReturn = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Associated purchase order record not found.' });
     }
 
-    // 1. Restore deducted inventory stock back to products
-    if (Array.isArray(purchaseReturn.items) && purchaseReturn.items.length > 0) {
-      for (const item of purchaseReturn.items) {
-        if (item.product && Number(item.quantity) > 0) {
-          const prevDoc = await Product.findOneAndUpdate(
-            { _id: item.product, ...getTenantQuery(req) },
-            { $inc: { stock: Number(item.quantity) } },
-            { new: false }
-          );
-          const prevStock = prevDoc ? prevDoc.stock : 0;
+    await withOptionalTransaction(async (session) => {
+      // 1. Restore deducted inventory stock back to products
+      if (Array.isArray(purchaseReturn.items) && purchaseReturn.items.length > 0) {
+        for (const item of purchaseReturn.items) {
+          if (item.product && Number(item.quantity) > 0) {
+            const updateOpts = { new: false };
+            if (session) updateOpts.session = session;
 
-          await InventoryTransaction.create({
-            userId: req.user?._id,
-            product: item.product,
-            type: 'PURCHASE',
-            quantity: Number(item.quantity),
-            previousStock: prevStock,
-            newStock: prevStock + Number(item.quantity),
-            referenceId: purchaseReturn.referenceNumber,
-            notes: `Restored stock due to deleted purchase return ${purchaseReturn.referenceNumber}`,
-            createdById: req.user?._id
-          });
+            const prevDoc = await Product.findOneAndUpdate(
+              { _id: item.product },
+              { $inc: { stock: Number(item.quantity) } },
+              updateOpts
+            );
+            const prevStock = prevDoc ? prevDoc.stock : 0;
+
+            const invTx = new InventoryTransaction({
+              userId: req.user?._id,
+              businessId: req.user?.businessId,
+              product: item.product,
+              type: 'PURCHASE',
+              quantity: Number(item.quantity),
+              previousStock: prevStock,
+              newStock: prevStock + Number(item.quantity),
+              referenceId: purchaseReturn.referenceNumber,
+              notes: `Restored stock due to deleted purchase return ${purchaseReturn.referenceNumber}`,
+              createdById: req.user?._id
+            });
+            await invTx.save(session ? { session } : undefined);
+          }
         }
       }
-    }
 
-    // 2. Remove refund PaymentTransaction if one was generated
-    if (purchaseReturn.refundAmount > 0) {
-      await PaymentTransaction.deleteMany({
-        referenceNumber: purchaseReturn.referenceNumber,
-        ...getTenantQuery(req)
-      });
-    }
+      // 2. Remove refund PaymentTransaction if one was generated
+      if (purchaseReturn.refundAmount > 0) {
+        const deleteQuery = {
+          referenceNumber: purchaseReturn.referenceNumber,
+          ...getTenantQuery(req)
+        };
+        if (session) {
+          await PaymentTransaction.deleteMany(deleteQuery).session(session);
+        } else {
+          await PaymentTransaction.deleteMany(deleteQuery);
+        }
+      }
 
-    // 3. Reverse returnedAmount on Purchase
-    const previousReturned = Number(purchase.returnedAmount) || 0;
-    const newReturned = Math.max(0, previousReturned - (Number(purchaseReturn.amount) || 0));
-    purchase.returnedAmount = newReturned;
+      // 3. Reverse returnedAmount on Purchase
+      const previousReturned = Number(purchase.returnedAmount) || 0;
+      const newReturned = Math.max(0, previousReturned - (Number(purchaseReturn.amount) || 0));
+      purchase.returnedAmount = newReturned;
 
-    const purchaseTotal = Number(purchase.totalCost || purchase.grandTotal) || 0;
-    if (newReturned <= 0) {
-      purchase.status = 'COMPLETED';
-    } else if (newReturned < purchaseTotal) {
-      purchase.status = 'PARTIALLY_RETURNED';
-    } else {
-      purchase.status = 'RETURNED';
-    }
-    await purchase.save();
+      const purchaseTotal = Number(purchase.totalCost || purchase.grandTotal) || 0;
+      if (newReturned <= 0) {
+        purchase.status = 'COMPLETED';
+      } else if (newReturned < purchaseTotal) {
+        purchase.status = 'PARTIALLY_RETURNED';
+      } else {
+        purchase.status = 'RETURNED';
+      }
+      await purchase.save(session ? { session } : undefined);
 
-    // 4. Delete the PurchaseReturn document
-    await PurchaseReturn.findByIdAndDelete(purchaseReturn._id);
+      // 4. Delete the PurchaseReturn document
+      if (session) {
+        await PurchaseReturn.findByIdAndDelete(purchaseReturn._id).session(session);
+      } else {
+        await PurchaseReturn.findByIdAndDelete(purchaseReturn._id);
+      }
+    });
 
     const updatedPurchase = await Purchase.findById(purchase._id)
       .populate('supplier', 'name phone email contactPerson companyName address')
@@ -724,7 +836,6 @@ exports.updatePurchase = async (req, res) => {
     const deltaQty = newQty - oldQty;
     if (deltaQty !== 0) {
       if (deltaQty < 0) {
-        // Reducing purchase quantity -> need to deduct stock
         const neededDeduction = Math.abs(deltaQty);
         if (targetProduct.stock < neededDeduction) {
           return res.status(400).json({
@@ -742,6 +853,7 @@ exports.updatePurchase = async (req, res) => {
 
       await InventoryTransaction.create({
         userId: req.user?._id,
+        businessId: req.user?.businessId,
         product: targetProduct._id,
         type: deltaQty > 0 ? 'PURCHASE' : 'ADJUSTMENT',
         quantity: deltaQty,
@@ -792,6 +904,8 @@ exports.updatePurchase = async (req, res) => {
         const supDoc = await Supplier.findById(supplier);
         if (supDoc && hasTenantAccess(supDoc, req)) {
           purchase.supplier = supDoc._id;
+        } else {
+          return res.status(404).json({ success: false, message: 'Supplier not found or unauthorized.' });
         }
       } else if (!supplier) {
         purchase.supplier = undefined;
@@ -881,40 +995,57 @@ exports.deletePurchase = async (req, res) => {
       }
     }
 
-    // 4. Atomically decrement stock and record inventory audit transaction
-    for (const item of itemsToReverse) {
-      if (item.product && Number(item.quantity) > 0) {
-        const prevDoc = await Product.findOneAndUpdate(
-          { _id: item.product, ...getTenantQuery(req) },
-          { $inc: { stock: -Number(item.quantity) } },
-          { new: false }
-        );
+    // 4. Atomically decrement stock and remove records
+    await withOptionalTransaction(async (session) => {
+      for (const item of itemsToReverse) {
+        if (item.product && Number(item.quantity) > 0) {
+          const updateOpts = { new: false };
+          if (session) updateOpts.session = session;
 
-        if (prevDoc) {
-          await InventoryTransaction.create({
-            userId: req.user?._id,
-            product: item.product,
-            type: 'ADJUSTMENT',
-            quantity: -Number(item.quantity),
-            previousStock: prevDoc.stock,
-            newStock: prevDoc.stock - Number(item.quantity),
-            referenceId: purchase.referenceNumber || purchase._id.toString(),
-            notes: `Reversal of deleted purchase order ${purchase.referenceNumber || purchase._id}`,
-            createdById: req.user?._id
-          });
+          const prevDoc = await Product.findOneAndUpdate(
+            { _id: item.product },
+            { $inc: { stock: -Number(item.quantity) } },
+            updateOpts
+          );
+
+          if (prevDoc) {
+            const invTx = new InventoryTransaction({
+              userId: req.user?._id,
+              businessId: req.user?.businessId,
+              product: item.product,
+              type: 'ADJUSTMENT',
+              quantity: -Number(item.quantity),
+              previousStock: prevDoc.stock,
+              newStock: prevDoc.stock - Number(item.quantity),
+              referenceId: purchase.referenceNumber || purchase._id.toString(),
+              notes: `Reversal of deleted purchase order ${purchase.referenceNumber || purchase._id}`,
+              createdById: req.user?._id
+            });
+            await invTx.save(session ? { session } : undefined);
+          }
         }
       }
-    }
 
-    // 5. Clean up any PaymentTransaction linked to this purchase reference
-    if (purchase.referenceNumber) {
-      await PaymentTransaction.deleteMany({
-        referenceNumber: purchase.referenceNumber,
-        ...getTenantQuery(req)
-      });
-    }
+      // 5. Clean up any PaymentTransaction linked to this purchase reference
+      if (purchase.referenceNumber) {
+        const delQuery = {
+          referenceNumber: purchase.referenceNumber,
+          ...getTenantQuery(req)
+        };
+        if (session) {
+          await PaymentTransaction.deleteMany(delQuery).session(session);
+        } else {
+          await PaymentTransaction.deleteMany(delQuery);
+        }
+      }
 
-    await Purchase.findByIdAndDelete(id);
+      if (session) {
+        await Purchase.findByIdAndDelete(id).session(session);
+      } else {
+        await Purchase.findByIdAndDelete(id);
+      }
+    });
+
     res.status(200).json({
       success: true,
       message: 'Purchase deleted and stock adjusted successfully.',

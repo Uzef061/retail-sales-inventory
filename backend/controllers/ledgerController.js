@@ -155,22 +155,37 @@ exports.getLedger = async (req, res) => {
 
     // 3. Compute Outstanding Balances as of asOfDate
     let toReceiveTotal = 0;
+    let customerCreditTotal = 0;
     const customerBalances = {};
     for (const [cId, c] of customerMap.entries()) {
       // Customer balance = (Total Sales - Total Returns) - (Total Paid at Sale + Additional Payments Received)
-      // If sale was paid in full at sale time, totalSales == totalPaidAtSale, balance is 0.
-      const netReceivable = Math.max(0, (c.totalSales - c.totalReturns) - (c.totalPaidAtSale + c.totalPayments));
+      // Positive: Customer owes business (Receivable)
+      // Negative: Customer has overpaid or has advance credit (Customer Advance / Store Credit)
+      // Zero: Settled
+      const netReceivable = Math.round(((c.totalSales - c.totalReturns) - (c.totalPaidAtSale + c.totalPayments)) * 100) / 100;
       customerBalances[cId] = netReceivable;
-      toReceiveTotal += netReceivable;
+      if (netReceivable > 0) {
+        toReceiveTotal += netReceivable;
+      } else if (netReceivable < 0) {
+        customerCreditTotal += Math.abs(netReceivable);
+      }
     }
 
     let toPayTotal = 0;
+    let supplierAdvanceTotal = 0;
     const supplierBalances = {};
     for (const [sId, s] of supplierMap.entries()) {
       // Supplier balance = (Total Purchases - Total Returns) - Total Payments Given
-      const netPayable = Math.max(0, (s.totalPurchases - s.totalReturns) - s.totalPayments);
+      // Positive: Business owes supplier (Payable)
+      // Negative: Business has overpaid or has advance credit with supplier (Supplier Advance)
+      // Zero: Settled
+      const netPayable = Math.round(((s.totalPurchases - s.totalReturns) - s.totalPayments) * 100) / 100;
       supplierBalances[sId] = netPayable;
-      toPayTotal += netPayable;
+      if (netPayable > 0) {
+        toPayTotal += netPayable;
+      } else if (netPayable < 0) {
+        supplierAdvanceTotal += Math.abs(netPayable);
+      }
     }
 
     // 4. Period Activity Metrics (Inside [pStart, pEnd])
@@ -408,6 +423,8 @@ exports.getLedger = async (req, res) => {
       summary: {
         toReceive: Math.round(toReceiveTotal * 100) / 100,
         toPay: Math.round(toPayTotal * 100) / 100,
+        customerAdvances: Math.round(customerCreditTotal * 100) / 100,
+        supplierAdvances: Math.round(supplierAdvanceTotal * 100) / 100,
         periodTotalIn: Math.round(periodReceivedTotal * 100) / 100,
         periodTotalOut: Math.round(periodPaidTotal * 100) / 100,
         periodSales: Math.round(periodSalesTotal * 100) / 100,

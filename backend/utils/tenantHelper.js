@@ -1,35 +1,57 @@
 /**
  * Centralized multi-tenant query scoping and ownership helper.
- * Enforces database-level isolation between users while preserving legacy demo compatibility for the React frontend.
+ * Enforces database-level isolation between users/businesses while preserving legacy demo compatibility.
  */
 
 const getTenantQuery = (req, baseQuery = {}) => {
-  if (!req.user) {
-    // Unauthenticated legacy requests (e.g. React frontend when running in anonymous/demo fallback)
-    return {
-      ...baseQuery,
+  let tenantFilter;
+  if (!req || !req.user) {
+    tenantFilter = {
       $or: [{ userId: null }, { userId: { $exists: false } }, { isDemoRecord: true }]
     };
-  }
-
-  // Authenticated store users retain access to legacy demo catalog data and their own data
-  return {
-    ...baseQuery,
-    $or: [
+  } else {
+    const orConditions = [
       { userId: req.user._id },
       { userId: null },
       { userId: { $exists: false } }
-    ]
+    ];
+    if (req.user.businessId) {
+      orConditions.push({ businessId: req.user.businessId });
+    }
+    tenantFilter = { $or: orConditions };
+  }
+
+  if (!baseQuery || Object.keys(baseQuery).length === 0) {
+    return tenantFilter;
+  }
+
+  // If baseQuery contains an $or, combine via $and to avoid property key collision in JS objects!
+  if (baseQuery.$or) {
+    const { $or: baseOr, ...rest } = baseQuery;
+    return {
+      ...rest,
+      $and: [
+        { $or: baseOr },
+        tenantFilter
+      ]
+    };
+  }
+
+  return {
+    ...baseQuery,
+    ...tenantFilter
   };
 };
 
 /**
  * Asserts whether the authenticated user has authorization to read/modify/delete a specific document.
+ * Enforces strict multi-tenant boundary: a user (regardless of role 'ADMIN') can NEVER access,
+ * modify, or delete another store/business's records.
  */
 const hasTenantAccess = (doc, req) => {
   if (!doc) return false;
   if (!req.user) {
-    // Legacy document access for unauthenticated calls
+    // Unauthenticated access only permitted for unassigned legacy records
     return !doc.userId;
   }
 
@@ -43,25 +65,25 @@ const hasTenantAccess = (doc, req) => {
     return true;
   }
 
-  // Legacy document without a userId is accessible by all authenticated store users
+  // Legacy document without a userId is accessible
   if (!doc.userId) {
     return true;
   }
 
-  // Store administrators retain access to store resources
-  if (req.user.role === 'ADMIN' || req.user.username === 'admin') {
-    return true;
-  }
-
+  // Cross-tenant access is strictly forbidden
   return false;
 };
 
 /**
- * Attaches the current tenant user ID to new record creation objects.
+ * Attaches the current tenant user ID and business ID to new record creation objects.
  */
 const attachTenantId = (payload, req) => {
   if (req && req.user && req.user._id) {
-    return { ...payload, userId: req.user._id };
+    const updated = { ...payload, userId: req.user._id };
+    if (req.user.businessId) {
+      updated.businessId = req.user.businessId;
+    }
+    return updated;
   }
   return payload;
 };

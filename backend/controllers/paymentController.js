@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const PaymentTransaction = require('../models/PaymentTransaction');
 const Customer = require('../models/Customer');
 const Supplier = require('../models/Supplier');
@@ -118,6 +119,25 @@ exports.createPayment = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Party name is required.', errorCode: 'MISSING_PARTY' });
     }
 
+    const effectivePartyType = (partyType || (type === 'RECEIVE' ? 'CUSTOMER' : 'SUPPLIER')).toUpperCase();
+
+    // Verify tenant ownership of linked party if partyId is provided
+    if (partyId && mongoose.Types.ObjectId.isValid(partyId)) {
+      let partyDoc = null;
+      if (effectivePartyType === 'SUPPLIER') {
+        partyDoc = await Supplier.findById(partyId);
+      } else if (effectivePartyType === 'CUSTOMER') {
+        partyDoc = await Customer.findById(partyId);
+      }
+      if (partyDoc && !hasTenantAccess(partyDoc, req)) {
+        return res.status(403).json({
+          success: false,
+          message: `${effectivePartyType === 'SUPPLIER' ? 'Supplier' : 'Customer'} belongs to another business or is unauthorized.`,
+          errorCode: 'FORBIDDEN_PARTY'
+        });
+      }
+    }
+
     // Idempotency check to prevent duplicate accidental submissions
     if (idempotencyKey) {
       const existing = await PaymentTransaction.findOne({
@@ -131,10 +151,11 @@ exports.createPayment = async (req, res) => {
 
     const payment = new PaymentTransaction({
       userId: req.user?._id,
+      businessId: req.user?.businessId,
       type: type.toUpperCase(),
-      partyType: (partyType || (type === 'RECEIVE' ? 'CUSTOMER' : 'SUPPLIER')).toUpperCase(),
+      partyType: effectivePartyType,
       partyId: partyId || undefined,
-      partyModel: partyType === 'SUPPLIER' ? 'Supplier' : (partyType === 'CUSTOMER' ? 'Customer' : undefined),
+      partyModel: effectivePartyType === 'SUPPLIER' ? 'Supplier' : (effectivePartyType === 'CUSTOMER' ? 'Customer' : undefined),
       partyName: partyName.trim(),
       amount: numAmount,
       paymentMethod: (paymentMethod || 'CASH').toUpperCase(),
@@ -148,6 +169,15 @@ exports.createPayment = async (req, res) => {
     const savedPayment = await payment.save();
     res.status(201).json(savedPayment);
   } catch (error) {
+    if (error.code === 11000 && req.body.idempotencyKey) {
+      const existing = await PaymentTransaction.findOne({
+        idempotencyKey: req.body.idempotencyKey,
+        ...getTenantQuery(req)
+      });
+      if (existing) {
+        return res.status(200).json(existing);
+      }
+    }
     res.status(500).json({ success: false, message: 'Error creating payment transaction', error: error.message });
   }
 };

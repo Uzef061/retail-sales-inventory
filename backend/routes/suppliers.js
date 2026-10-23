@@ -7,13 +7,16 @@ const {
   deleteSupplier,
   getSupplierLedger
 } = require('../controllers/supplierController');
-const { optionalProtect } = require('../middleware/authMiddleware');
+const { protect, optionalProtect } = require('../middleware/authMiddleware');
 
+// Read operations
 router.get('/', optionalProtect, getSuppliers);
 router.get('/:id/ledger', optionalProtect, getSupplierLedger);
 router.get('/:id/statement', optionalProtect, getSupplierLedger);
-router.post('/', optionalProtect, createSupplier);
-router.put('/:id', optionalProtect, updateSupplier);
-router.delete('/:id', optionalProtect, deleteSupplier);
+
+// Mutation operations strictly require authentication
+router.post('/', protect, createSupplier);
+router.put('/:id', protect, updateSupplier);
+router.delete('/:id', protect, deleteSupplier);
 
 module.exports = router;

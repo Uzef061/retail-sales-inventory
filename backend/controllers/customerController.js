@@ -65,6 +65,7 @@ exports.createCustomer = async (req, res) => {
 
     const customer = new Customer({
       userId: req.user?._id,
+      businessId: req.user?.businessId,
       name: name.trim(),
       phone: phone.trim(),
       email: email ? email.trim() : '',

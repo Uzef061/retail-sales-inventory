@@ -131,6 +131,7 @@ exports.createSupplier = async (req, res) => {
 
     const supplier = new Supplier({
       userId: req.user?._id,
+      businessId: req.user?.businessId,
       name: name.trim(),
       phone: phone.trim(),
       email: email ? email.trim() : '',

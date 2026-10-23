@@ -91,6 +91,13 @@ exports.createSale = async (req, res) => {
     let targetCustomer;
     if (customer && mongoose.Types.ObjectId.isValid(customer)) {
       targetCustomer = await Customer.findById(customer);
+      if (targetCustomer && !hasTenantAccess(targetCustomer, req)) {
+        return res.status(403).json({
+          success: false,
+          message: 'Customer belongs to another store or business.',
+          errorCode: 'FORBIDDEN_CUSTOMER'
+        });
+      }
     }
 
     if (!targetCustomer && customerPhone && String(customerPhone).trim()) {
@@ -110,6 +117,7 @@ exports.createSale = async (req, res) => {
 
       targetCustomer = await Customer.create({
         userId: req.user?._id,
+        businessId: req.user?.businessId,
         name: cName || (cPhone ? `Customer (${cPhone})` : 'Walk-in Customer'),
         phone: cPhone || 'N/A',
         email: customerEmail ? customerEmail.trim() : '',
