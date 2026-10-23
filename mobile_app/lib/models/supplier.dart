@@ -6,18 +6,57 @@ class Supplier {
   final String address;
   final String contactPerson;
   final bool isActive;
+  final double balance;
+  final String balanceStatus; // 'OWED_TO_SUPPLIER', 'SUPPLIER_ADVANCE', 'SETTLED'
+  final String balanceLabel;
+  final double totalPurchases;
+  final double totalPayments;
+  final double totalReturns;
 
   Supplier({
     required this.id,
     required this.name,
     required this.phone,
-    required this.email,
+    this.email = '',
     this.address = '',
     this.contactPerson = '',
     this.isActive = true,
+    this.balance = 0.0,
+    this.balanceStatus = 'SETTLED',
+    this.balanceLabel = '₹0',
+    this.totalPurchases = 0.0,
+    this.totalPayments = 0.0,
+    this.totalReturns = 0.0,
   });
 
+  bool get isOwed => balanceStatus == 'OWED_TO_SUPPLIER' || balance > 0;
+  bool get isAdvance => balanceStatus == 'SUPPLIER_ADVANCE' || balance < 0;
+  bool get isSettled => balanceStatus == 'SETTLED' || balance == 0;
+
   factory Supplier.fromJson(Map<String, dynamic> json) {
+    final double bal = (json['balance'] as num?)?.toDouble() ?? 0.0;
+    String status = json['balanceStatus']?.toString() ?? '';
+    if (status.isEmpty) {
+      if (bal > 0) {
+        status = 'OWED_TO_SUPPLIER';
+      } else if (bal < 0) {
+        status = 'SUPPLIER_ADVANCE';
+      } else {
+        status = 'SETTLED';
+      }
+    }
+
+    String label = json['balanceLabel']?.toString() ?? '';
+    if (label.isEmpty) {
+      if (bal > 0) {
+        label = 'You owe ₹${bal.toStringAsFixed(0)}';
+      } else if (bal < 0) {
+        label = 'Advance ₹${(-bal).toStringAsFixed(0)}';
+      } else {
+        label = 'Settled (₹0)';
+      }
+    }
+
     return Supplier(
       id: json['_id']?.toString() ?? json['id']?.toString() ?? '',
       name: json['name']?.toString() ?? '',
@@ -26,6 +65,12 @@ class Supplier {
       address: json['address']?.toString() ?? '',
       contactPerson: json['contactPerson']?.toString() ?? json['companyName']?.toString() ?? '',
       isActive: json['isActive'] ?? true,
+      balance: bal,
+      balanceStatus: status,
+      balanceLabel: label,
+      totalPurchases: (json['totalPurchases'] as num?)?.toDouble() ?? 0.0,
+      totalPayments: (json['totalPayments'] as num?)?.toDouble() ?? 0.0,
+      totalReturns: (json['totalReturns'] as num?)?.toDouble() ?? 0.0,
     );
   }
 

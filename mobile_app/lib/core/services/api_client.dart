@@ -34,6 +34,7 @@ class ApiException implements Exception {
 
   bool get isNotFound => statusCode == 404;
   bool get isUnauthorized => statusCode == 401 || statusCode == 403;
+  bool get isConflict => statusCode == 409;
   bool get isConnectionError => category == AuthErrorCategory.network || statusCode == 0;
   bool get isTimeout => category == AuthErrorCategory.timeout || statusCode == 408;
 

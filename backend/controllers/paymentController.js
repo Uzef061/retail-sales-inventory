@@ -122,7 +122,7 @@ exports.createPayment = async (req, res) => {
     if (idempotencyKey) {
       const existing = await PaymentTransaction.findOne({
         idempotencyKey,
-        userId: req.user._id
+        ...getTenantQuery(req)
       });
       if (existing) {
         return res.status(200).json(existing);
@@ -130,7 +130,7 @@ exports.createPayment = async (req, res) => {
     }
 
     const payment = new PaymentTransaction({
-      userId: req.user._id,
+      userId: req.user?._id,
       type: type.toUpperCase(),
       partyType: (partyType || (type === 'RECEIVE' ? 'CUSTOMER' : 'SUPPLIER')).toUpperCase(),
       partyId: partyId || undefined,
@@ -142,7 +142,7 @@ exports.createPayment = async (req, res) => {
       referenceNumber: referenceNumber ? referenceNumber.trim() : '',
       notes: notes ? notes.trim() : '',
       idempotencyKey: idempotencyKey || undefined,
-      createdById: req.user._id
+      createdById: req.user?._id
     });
 
     const savedPayment = await payment.save();

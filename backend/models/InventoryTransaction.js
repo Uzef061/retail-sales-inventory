@@ -14,7 +14,7 @@ const inventoryTransactionSchema = new mongoose.Schema(
     },
     type: {
       type: String,
-      enum: ['OPENING', 'PURCHASE', 'SALE', 'SALE_CANCELLED', 'ADJUSTMENT', 'RETURN'],
+      enum: ['OPENING', 'PURCHASE', 'SALE', 'SALE_CANCELLED', 'ADJUSTMENT', 'RETURN', 'SALE_RETURN'],
       required: true
     },
     quantity: { type: Number, required: true }, // + for increase, - for decrease

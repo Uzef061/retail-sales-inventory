@@ -33,6 +33,7 @@ const paymentRoutes = require('./routes/payments');
 const reminderRoutes = require('./routes/reminders');
 const noteRoutes = require('./routes/notes');
 const notificationRoutes = require('./routes/notifications');
+const ledgerRoutes = require('./routes/ledger');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -58,6 +59,7 @@ app.use('/api/payments', paymentRoutes);
 app.use('/api/reminders', reminderRoutes);
 app.use('/api/notes', noteRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/ledger', ledgerRoutes);
 
 // Secure Demo Reset Endpoint for Viva Demo
 const handleDemoReset = async (req, res) => {

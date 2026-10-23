@@ -1,5 +1,7 @@
 const Customer = require('../models/Customer');
 const Sale = require('../models/Sale');
+const SaleReturn = require('../models/SaleReturn');
+const PaymentTransaction = require('../models/PaymentTransaction');
 const { getTenantQuery, hasTenantAccess } = require('../utils/tenantHelper');
 
 // Email regex pattern
@@ -46,6 +48,19 @@ exports.createCustomer = async (req, res) => {
     }
     if (email && email.trim() && !EMAIL_REGEX.test(email.trim())) {
       return res.status(400).json({ success: false, message: 'Please provide a valid email address.', errorCode: 'INVALID_EMAIL' });
+    }
+
+    // Check for existing customer by phone within tenant to prevent duplicates
+    const existing = await Customer.findOne({
+      userId: req.user?._id,
+      phone: phone.trim()
+    });
+    if (existing) {
+      if (existing.isActive === false) {
+        existing.isActive = true;
+        await existing.save();
+      }
+      return res.status(200).json(existing);
     }
 
     const customer = new Customer({
@@ -107,22 +122,24 @@ exports.deleteCustomer = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Customer not found' });
     }
 
-    // Check if customer is referenced in Sales
+    // Check if customer is referenced in Sales, Payments, or Returns
     const hasSales = await Sale.exists({ customer: id });
+    const hasPayments = await PaymentTransaction.exists({ partyId: id });
+    const hasReturns = await SaleReturn.exists({ customer: id });
 
-    if (hasSales) {
+    if (hasSales || hasPayments || hasReturns) {
       customer.isActive = false;
       await customer.save();
       return res.status(200).json({
         success: true,
-        message: 'Customer deactivated (soft-deleted) to protect historical purchase order history.',
+        message: 'Customer deactivated (soft-deleted) to protect historical transaction history.',
         id,
         isSoftDeleted: true
       });
     }
 
     await Customer.findByIdAndDelete(id);
-    res.status(200).json({ success: true, message: 'Customer deleted successfully', id });
+    res.status(200).json({ success: true, message: 'Customer deleted successfully', id, isSoftDeleted: false });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Error deleting customer', error: error.message });
   }

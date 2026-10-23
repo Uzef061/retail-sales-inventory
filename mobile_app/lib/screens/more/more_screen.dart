@@ -220,9 +220,9 @@ class MoreScreen extends StatelessWidget {
             child: Column(
               children: [
                 ListTile(
-                  leading: const Icon(Icons.account_balance_wallet_outlined, color: AppTheme.success),
-                  title: const Text('Cash Flow Ledger (Receive & Give)', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-                  subtitle: const Text('All cash entries, party transactions & net position', style: TextStyle(fontSize: 12)),
+                  leading: const Icon(Icons.menu_book_rounded, color: AppTheme.primary),
+                  title: const Text('Business Ledger (Receivables & Payables)', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                  subtitle: const Text('To Receive, To Pay, period statements & party ledgers', style: TextStyle(fontSize: 12)),
                   trailing: const Icon(Icons.chevron_right, size: 20, color: AppTheme.textSecondary),
                   onTap: () {
                     Navigator.of(context).push(

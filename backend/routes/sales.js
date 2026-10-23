@@ -9,7 +9,11 @@ router.post('/', optionalProtect, saleController.createSale);
 router.put('/:id', optionalProtect, saleController.updateSale);
 router.put('/:id/cancel', optionalProtect, saleController.cancelSale);
 router.post('/:id/cancel', optionalProtect, saleController.cancelSale);
-router.delete('/:id', protect, authorize('ADMIN'), saleController.deleteSale);
-router.post('/bulk-delete', protect, authorize('ADMIN'), saleController.bulkDeleteSales);
+router.post('/:id/return', optionalProtect, saleController.returnSale);
+router.get('/:id/returns', optionalProtect, saleController.getSaleReturns);
+router.delete('/returns/:returnId', optionalProtect, saleController.deleteSaleReturn);
+router.delete('/:id/returns/:returnId', optionalProtect, saleController.deleteSaleReturn);
+router.delete('/:id', optionalProtect, saleController.deleteSale);
+router.post('/bulk-delete', optionalProtect, saleController.bulkDeleteSales);
 
 module.exports = router;

@@ -4,6 +4,7 @@ import 'package:mobile_app/models/dashboard_data.dart';
 import 'package:mobile_app/models/product.dart';
 import 'package:mobile_app/models/profit_loss_data.dart';
 import 'package:mobile_app/models/purchase.dart';
+import 'package:mobile_app/models/purchase_return.dart';
 import 'package:mobile_app/models/sale.dart';
 import 'package:mobile_app/models/supplier.dart';
 import 'package:mobile_app/models/user.dart';
@@ -90,17 +91,46 @@ void main() {
       expect(cust.phone, '9876543210');
     });
 
-    test('parses Supplier model', () {
+    test('parses Supplier model with live balance & statement metrics', () {
       final json = {
         '_id': 's1',
         'name': 'Himalayan Wholesale Corp',
         'phone': '9898989898',
         'email': 'supplier@himalaya.com',
         'contactPerson': 'Anand Verma',
+        'balance': 1500,
+        'balanceStatus': 'OWED_TO_SUPPLIER',
+        'balanceLabel': 'You owe ₹1500',
+        'totalPurchases': 5000,
+        'totalPayments': 3500,
+        'totalReturns': 0,
       };
       final sup = Supplier.fromJson(json);
       expect(sup.name, 'Himalayan Wholesale Corp');
       expect(sup.contactPerson, 'Anand Verma');
+      expect(sup.balance, 1500.0);
+      expect(sup.isOwed, isTrue);
+      expect(sup.isAdvance, isFalse);
+      expect(sup.isSettled, isFalse);
+      expect(sup.balanceLabel, 'You owe ₹1500');
+      expect(sup.totalPurchases, 5000.0);
+      expect(sup.totalPayments, 3500.0);
+    });
+
+    test('parses Supplier with advance balance', () {
+      final json = {
+        '_id': 's2',
+        'name': 'Advance Vendor',
+        'phone': '9991112222',
+        'balance': -300,
+        'balanceStatus': 'SUPPLIER_ADVANCE',
+        'balanceLabel': 'Advance ₹300',
+      };
+      final sup = Supplier.fromJson(json);
+      expect(sup.balance, -300.0);
+      expect(sup.isAdvance, isTrue);
+      expect(sup.isOwed, isFalse);
+      expect(sup.balanceLabel, 'Advance ₹300');
     });
   });
 
@@ -143,21 +173,66 @@ void main() {
       expect(sale.isCancelled, isFalse);
     });
 
-    test('parses Purchase model', () {
+    test('parses multi-item Purchase with payment status & returns', () {
       final json = {
-        '_id': 'pur_1',
-        'supplier': {'name': 'Best Beans Co'},
-        'product': {'name': 'Coffee Roast'},
-        'quantity': 15,
-        'costPrice': 140,
-        'totalCost': 2100,
+        '_id': 'pur_2',
+        'supplier': {'_id': 'sup_1', 'name': 'Best Beans Co'},
+        'items': [
+          {
+            'product': {'_id': 'p1', 'name': 'Coffee Roast'},
+            'quantity': 10,
+            'costPrice': 100,
+            'totalCost': 1000,
+          },
+          {
+            'product': {'_id': 'p2', 'name': 'Tea Leaves'},
+            'quantity': 5,
+            'costPrice': 50,
+            'totalCost': 250,
+          }
+        ],
+        'subtotal': 1250,
+        'grandTotal': 1250,
+        'amountPaid': 500,
+        'paymentStatus': 'PARTIALLY_PAID',
+        'paymentMethod': 'CASH',
+        'returnedAmount': 250,
+        'status': 'PARTIALLY_RETURNED',
         'purchaseDate': '2026-10-18T08:00:00.000Z',
       };
       final purchase = Purchase.fromJson(json);
       expect(purchase.supplierName, 'Best Beans Co');
-      expect(purchase.productName, 'Coffee Roast');
+      expect(purchase.supplierId, 'sup_1');
+      expect(purchase.items.length, 2);
       expect(purchase.quantity, 15);
-      expect(purchase.totalCost, 2100.0);
+      expect(purchase.totalCost, 1250.0);
+      expect(purchase.amountPaid, 500.0);
+      expect(purchase.isPartiallyPaid, isTrue);
+      expect(purchase.unpaidBalance, 750.0);
+      expect(purchase.returnedAmount, 250.0);
+      expect(purchase.remainingReturnable, 1000.0);
+      expect(purchase.canReturn, isTrue);
+    });
+
+    test('parses PurchaseReturn model', () {
+      final json = {
+        '_id': 'ret_1',
+        'purchaseId': 'pur_2',
+        'referenceNumber': 'PR-12345678',
+        'originalReferenceNumber': 'PO-8821',
+        'supplier': {'name': 'Best Beans Co'},
+        'amount': 250,
+        'refundMode': 'REDUCE_PAYABLE',
+        'returnDate': '2026-10-18T12:00:00.000Z',
+        'reason': 'Damaged items',
+      };
+      final pr = PurchaseReturn.fromJson(json);
+      expect(pr.id, 'ret_1');
+      expect(pr.purchaseId, 'pur_2');
+      expect(pr.referenceNumber, 'PR-12345678');
+      expect(pr.supplierName, 'Best Beans Co');
+      expect(pr.amount, 250.0);
+      expect(pr.refundMode, 'REDUCE_PAYABLE');
     });
   });
 

@@ -1,8 +1,11 @@
 const Sale = require('../models/Sale');
+const SaleReturn = require('../models/SaleReturn');
+const PaymentTransaction = require('../models/PaymentTransaction');
 const Product = require('../models/Product');
 const Customer = require('../models/Customer');
 const InventoryTransaction = require('../models/InventoryTransaction');
 const { getTenantQuery, hasTenantAccess } = require('../utils/tenantHelper');
+const mongoose = require('mongoose');
 
 const normalizePaymentMethod = (pm) => {
   if (!pm) return 'CASH';
@@ -45,11 +48,16 @@ exports.getSaleById = async (req, res) => {
   }
 };
 
-// POST /api/sales (Supports POS multi-item & legacy single-item billing)
+// POST /api/sales (Supports simplified fast sales, POS multi-item & legacy single-item billing)
 exports.createSale = async (req, res) => {
   try {
     const {
       customer,
+      customerName,
+      customerPhone,
+      customerEmail,
+      customerAddress,
+      amount,
       product,
       quantity,
       price,
@@ -60,16 +68,59 @@ exports.createSale = async (req, res) => {
       discount = 0,
       tax = 0,
       paymentMethod = 'CASH',
-      amountReceived = 0
+      amountReceived,
+      notes,
+      idempotencyKey
     } = req.body;
 
-    if (!customer) {
-      return res.status(400).json({ success: false, message: 'Customer is required.', errorCode: 'MISSING_CUSTOMER' });
+    // 0. Idempotency check to prevent duplicate submission on rapid Save taps
+    if (idempotencyKey) {
+      const existing = await Sale.findOne({
+        idempotencyKey,
+        ...getTenantQuery(req)
+      })
+        .populate('customer', 'name email phone address')
+        .populate('product', 'name price sellingPrice costPrice category stock')
+        .populate('items.product', 'name price sellingPrice costPrice category stock');
+      if (existing) {
+        return res.status(200).json(existing);
+      }
     }
 
-    const targetCustomer = await Customer.findById(customer);
-    if (!targetCustomer || targetCustomer.isActive === false || !hasTenantAccess(targetCustomer, req)) {
-      return res.status(404).json({ success: false, message: 'Active customer profile not found or unauthorized.', errorCode: 'CUSTOMER_NOT_FOUND' });
+    // 1. Customer resolution (Find by ID or find/create by phone)
+    let targetCustomer;
+    if (customer && mongoose.Types.ObjectId.isValid(customer)) {
+      targetCustomer = await Customer.findById(customer);
+    }
+
+    if (!targetCustomer && customerPhone && String(customerPhone).trim()) {
+      targetCustomer = await Customer.findOne({
+        ...getTenantQuery(req),
+        phone: String(customerPhone).trim()
+      });
+    }
+
+    if (!targetCustomer) {
+      const cPhone = (customerPhone || (typeof customer === 'string' && !mongoose.Types.ObjectId.isValid(customer) ? customer : '')).trim();
+      const cName = (customerName || (typeof customer === 'string' && !mongoose.Types.ObjectId.isValid(customer) ? 'Customer' : '')).trim();
+
+      if (!cName && !cPhone) {
+        return res.status(400).json({ success: false, message: 'Customer name or phone is required.', errorCode: 'MISSING_CUSTOMER' });
+      }
+
+      targetCustomer = await Customer.create({
+        userId: req.user?._id,
+        name: cName || (cPhone ? `Customer (${cPhone})` : 'Walk-in Customer'),
+        phone: cPhone || 'N/A',
+        email: customerEmail ? customerEmail.trim() : '',
+        address: customerAddress ? customerAddress.trim() : '',
+        isActive: true
+      });
+    }
+
+    if (targetCustomer.isActive === false) {
+      targetCustomer.isActive = true;
+      await targetCustomer.save();
     }
 
     // Validate saleDate if provided
@@ -89,6 +140,58 @@ exports.createSale = async (req, res) => {
         return res.status(400).json({ success: false, message: 'Future sale dates are not allowed.', errorCode: 'FUTURE_DATE' });
       }
       parsedSaleDate = d;
+    }
+
+    const hasItems = Array.isArray(items) && items.length > 0;
+    const hasProduct = Boolean(product);
+    const saleAmount = Number(amount !== undefined ? amount : (req.body.grandTotal || req.body.totalAmount));
+
+    // Simplified amount-only sales entry (No catalog product/cart required)
+    if (!hasItems && !hasProduct) {
+      if (isNaN(saleAmount) || saleAmount <= 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Sale amount must be greater than 0.',
+          errorCode: 'INVALID_AMOUNT'
+        });
+      }
+
+      const invoiceNumber = `INV-${Date.now().toString().slice(-8)}`;
+      const discountVal = Number(discount) || 0;
+      const taxVal = Number(tax) || 0;
+      const grandTotalCalc = Math.max(0, saleAmount - discountVal + taxVal);
+      const amtReceived = amountReceived !== undefined ? Number(amountReceived) : grandTotalCalc;
+      const changeDueCalc = Math.max(0, amtReceived - grandTotalCalc);
+
+      const newSale = new Sale({
+        userId: req.user?._id,
+        invoiceNumber,
+        customer: targetCustomer._id,
+        items: [],
+        quantity: 1,
+        sellingPrice: saleAmount,
+        costPrice: 0,
+        totalAmount: saleAmount,
+        totalCostAmount: 0,
+        profit: saleAmount,
+        subtotal: saleAmount,
+        discount: discountVal,
+        tax: taxVal,
+        grandTotal: grandTotalCalc,
+        paymentMethod: normalizePaymentMethod(paymentMethod),
+        amountReceived: amtReceived,
+        changeDue: changeDueCalc,
+        status: 'COMPLETED',
+        saleDate: parsedSaleDate,
+        notes: notes ? String(notes).trim() : '',
+        idempotencyKey: idempotencyKey || undefined
+      });
+
+      const savedSale = await newSale.save();
+      const populatedSale = await Sale.findById(savedSale._id)
+        .populate('customer', 'name email phone address');
+
+      return res.status(201).json(populatedSale);
     }
 
     let normalizedItems = [];
@@ -175,35 +278,90 @@ exports.createSale = async (req, res) => {
     let subtotalCalc = 0;
     let totalCostCalc = 0;
     let totalProfitCalc = 0;
+    const successfullyDeducted = [];
 
-    for (const item of normalizedItems) {
-      const prod = item.productDoc;
-      const prevStock = prod.stock;
-      prod.stock -= item.quantity;
-      await prod.save();
+    try {
+      for (const item of normalizedItems) {
+        // Atomic conditional deduction preventing negative stock & race conditions across concurrent devices
+        const prevDoc = await Product.findOneAndUpdate(
+          {
+            _id: item.product,
+            ...getTenantQuery(req),
+            stock: { $gte: item.quantity }
+          },
+          {
+            $inc: { stock: -item.quantity }
+          },
+          {
+            new: false
+          }
+        );
 
-      // Record Inventory Transaction
-      await InventoryTransaction.create({
-        userId: req.user?._id,
-        product: prod._id,
-        type: 'SALE',
-        quantity: -item.quantity,
-        previousStock: prevStock,
-        newStock: prod.stock,
-        referenceId: invoiceNumber,
-        notes: `Sale order ${invoiceNumber}`,
-        createdById: req.user?._id
-      });
+        if (!prevDoc) {
+          // Stock conflict detected! Could be due to concurrent sale on another device or insufficient stock
+          const currentProd = await Product.findById(item.product);
+          const currentAvail = currentProd ? currentProd.stock : 0;
+          const prodName = currentProd ? currentProd.name : 'Selected product';
 
-      subtotalCalc += item.totalAmount;
-      totalCostCalc += item.totalCostAmount;
-      totalProfitCalc += item.profit;
+          // Roll back any previously deducted items in this transaction
+          for (const deducted of successfullyDeducted) {
+            await Product.updateOne(
+              { _id: deducted.productId },
+              { $inc: { stock: deducted.quantity } }
+            );
+          }
+
+          return res.status(409).json({
+            success: false,
+            conflict: true,
+            errorCode: 'INSUFFICIENT_STOCK_CONFLICT',
+            message: `Stock conflict: "${prodName}" only has ${currentAvail} unit(s) available, requested ${item.quantity}.`,
+            availableStock: currentAvail,
+            requestedQuantity: item.quantity,
+            productId: item.product
+          });
+        }
+
+        const prevStock = prevDoc.stock;
+        const newStock = prevStock - item.quantity;
+        successfullyDeducted.push({
+          productId: item.product,
+          quantity: item.quantity,
+          previousStock: prevStock,
+          newStock: newStock
+        });
+
+        // Record Inventory Audit Movement Entry
+        await InventoryTransaction.create({
+          userId: req.user?._id,
+          product: item.product,
+          type: 'SALE',
+          quantity: -item.quantity,
+          previousStock: prevStock,
+          newStock: newStock,
+          referenceId: invoiceNumber,
+          notes: `Itemized sale ${invoiceNumber}`,
+          createdById: req.user?._id
+        });
+
+        subtotalCalc += item.totalAmount;
+        totalCostCalc += item.totalCostAmount;
+        totalProfitCalc += item.profit;
+      }
+    } catch (deductErr) {
+      for (const deducted of successfullyDeducted) {
+        await Product.updateOne(
+          { _id: deducted.productId },
+          { $inc: { stock: deducted.quantity } }
+        );
+      }
+      throw deductErr;
     }
 
     const discountVal = Number(discount) || 0;
     const taxVal = Number(tax) || 0;
     const grandTotalCalc = Math.max(0, subtotalCalc - discountVal + taxVal);
-    const amtReceived = Number(amountReceived) || grandTotalCalc;
+    const amtReceived = amountReceived !== undefined ? Number(amountReceived) : grandTotalCalc;
     const changeDueCalc = Math.max(0, amtReceived - grandTotalCalc);
 
     // Primary item for legacy single-item backward compatibility
@@ -212,7 +370,7 @@ exports.createSale = async (req, res) => {
     const newSale = new Sale({
       userId: req.user?._id,
       invoiceNumber,
-      customer,
+      customer: targetCustomer._id,
       product: firstItem.product,
       items: normalizedItems.map(({ product, quantity, sellingPrice, costPrice, totalAmount, totalCostAmount, profit }) => ({
         product, quantity, sellingPrice, costPrice, totalAmount, totalCostAmount, profit
@@ -231,7 +389,9 @@ exports.createSale = async (req, res) => {
       amountReceived: amtReceived,
       changeDue: changeDueCalc,
       status: 'COMPLETED',
-      saleDate: parsedSaleDate
+      saleDate: parsedSaleDate,
+      notes: notes ? String(notes).trim() : '',
+      idempotencyKey: idempotencyKey || undefined
     });
 
     const savedSale = await newSale.save();
@@ -265,6 +425,14 @@ exports.cancelSale = async (req, res) => {
       });
     }
 
+    if (sale.returnedAmount > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot cancel a sale with active sales returns. Please delete or reverse the sales returns first.',
+        errorCode: 'HAS_RETURNS'
+      });
+    }
+
     // Determine items to restore
     let itemsToRestore = [];
     if (Array.isArray(sale.items) && sale.items.length > 0) {
@@ -276,7 +444,7 @@ exports.cancelSale = async (req, res) => {
     // Restore Inventory Stock & Record Inventory Transactions
     for (const item of itemsToRestore) {
       const prod = await Product.findById(item.product);
-      if (prod) {
+      if (prod && hasTenantAccess(prod, req)) {
         const prevStock = prod.stock;
         prod.stock += Number(item.quantity);
         await prod.save();
@@ -318,7 +486,402 @@ exports.cancelSale = async (req, res) => {
   }
 };
 
-// DELETE /api/sales/:id — Admin Permanent Delete (With Stock Restoration)
+// POST /api/sales/:id/return — Sales Return Workflow (Full & Partial, Damaged vs Sellable Stock)
+exports.returnSale = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { returnAmount, returnedItems, reason, refundMode, restoreStock, idempotencyKey } = req.body;
+
+    // 0. Idempotency check to prevent duplicate returns or double-restoring stock
+    if (idempotencyKey) {
+      const existingReturn = await SaleReturn.findOne({
+        idempotencyKey,
+        ...getTenantQuery(req)
+      });
+      if (existingReturn) {
+        const existingSale = await Sale.findById(existingReturn.saleId)
+          .populate('customer', 'name email phone address')
+          .populate('product', 'name price sellingPrice costPrice category stock')
+          .populate('items.product', 'name price sellingPrice costPrice category stock');
+        return res.status(200).json({
+          success: true,
+          message: 'Return already processed (idempotent)',
+          return: existingReturn,
+          sale: existingSale
+        });
+      }
+    }
+
+    const sale = await Sale.findById(id).populate('customer');
+    if (!sale || !hasTenantAccess(sale, req)) {
+      return res.status(404).json({ success: false, message: 'Sale record not found.', errorCode: 'NOT_FOUND' });
+    }
+
+    if (sale.status === 'CANCELLED') {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot return a cancelled sale.',
+        errorCode: 'SALE_CANCELLED'
+      });
+    }
+
+    const previousReturned = Number(sale.returnedAmount) || 0;
+    const saleTotal = Number(sale.grandTotal || sale.totalAmount) || 0;
+    const maxReturnable = Math.max(0, saleTotal - previousReturned);
+
+    if (maxReturnable <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'This sale has already been fully returned.',
+        errorCode: 'ALREADY_FULLY_RETURNED'
+      });
+    }
+
+    const requestedAmount = returnAmount !== undefined ? Number(returnAmount) : maxReturnable;
+    if (isNaN(requestedAmount) || requestedAmount <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Return amount must be greater than 0.',
+        errorCode: 'INVALID_RETURN_AMOUNT'
+      });
+    }
+
+    if (requestedAmount > maxReturnable) {
+      return res.status(400).json({
+        success: false,
+        message: `Return amount (₹${requestedAmount}) cannot exceed remaining returnable amount (₹${maxReturnable}).`,
+        errorCode: 'EXCEEDS_RETURNABLE'
+      });
+    }
+
+    const reasonText = reason ? String(reason).trim() : 'Customer return';
+    const isDamagedReason = /damaged|defective|broken|spoiled|reject/i.test(reasonText);
+    const shouldRestoreSellableStock = restoreStock !== undefined
+      ? Boolean(restoreStock)
+      : !isDamagedReason;
+
+    // 1. Inventory stock restoration (only for items actually returned and accepted into sellable inventory)
+    const returnInvoice = `RET-${Date.now().toString().slice(-8)}`;
+    const restoredItemsForRecord = [];
+
+    if (Array.isArray(returnedItems) && returnedItems.length > 0) {
+      for (const retItem of returnedItems) {
+        const prodId = retItem.product || retItem.productId;
+        const qty = Number(retItem.quantity);
+        if (prodId && qty > 0) {
+          const prod = await Product.findById(prodId);
+          if (prod && hasTenantAccess(prod, req)) {
+            const isItemDamaged = retItem.isSellable === false ||
+              String(retItem.condition).toUpperCase() === 'DAMAGED' ||
+              String(retItem.condition).toUpperCase() === 'REJECTED' ||
+              !shouldRestoreSellableStock;
+
+            if (!isItemDamaged) {
+              // Item is sellable -> atomically restore stock
+              const prevDoc = await Product.findOneAndUpdate(
+                { _id: prod._id, ...getTenantQuery(req) },
+                { $inc: { stock: qty } },
+                { new: false }
+              );
+              const prevStock = prevDoc ? prevDoc.stock : prod.stock;
+              const newStock = prevStock + qty;
+
+              await InventoryTransaction.create({
+                userId: req.user?._id,
+                product: prod._id,
+                type: 'RETURN',
+                quantity: qty,
+                previousStock: prevStock,
+                newStock: newStock,
+                referenceId: returnInvoice,
+                notes: `Restored to sellable stock from return ${returnInvoice} (Sale: ${sale.invoiceNumber || sale._id})`,
+                createdById: req.user?._id
+              });
+
+              restoredItemsForRecord.push({
+                product: prod._id,
+                quantity: qty,
+                sellingPrice: Number(retItem.sellingPrice) || prod.sellingPrice || 0,
+                costPrice: prod.costPrice || 0,
+                totalAmount: (Number(retItem.sellingPrice) || prod.sellingPrice || 0) * qty,
+                restoredToStock: true,
+                condition: 'SELLABLE'
+              });
+            } else {
+              // Item is damaged/defective -> do NOT increase sellable stock
+              await InventoryTransaction.create({
+                userId: req.user?._id,
+                product: prod._id,
+                type: 'RETURN',
+                quantity: 0,
+                previousStock: prod.stock,
+                newStock: prod.stock,
+                referenceId: returnInvoice,
+                notes: `Return ${returnInvoice}: Damaged/defective item (${qty} units) received - NOT restored to sellable stock`,
+                createdById: req.user?._id
+              });
+
+              restoredItemsForRecord.push({
+                product: prod._id,
+                quantity: qty,
+                sellingPrice: Number(retItem.sellingPrice) || prod.sellingPrice || 0,
+                costPrice: prod.costPrice || 0,
+                totalAmount: (Number(retItem.sellingPrice) || prod.sellingPrice || 0) * qty,
+                restoredToStock: false,
+                condition: 'DAMAGED'
+              });
+            }
+          }
+        }
+      }
+    } else if (sale.items && sale.items.length > 0 && requestedAmount >= maxReturnable) {
+      // Full return of a multi-item sale where items were not individually itemized
+      for (const item of sale.items) {
+        if (item.product && item.quantity > 0) {
+          const prod = await Product.findById(item.product);
+          if (prod && hasTenantAccess(prod, req)) {
+            if (shouldRestoreSellableStock) {
+              const prevDoc = await Product.findOneAndUpdate(
+                { _id: prod._id, ...getTenantQuery(req) },
+                { $inc: { stock: item.quantity } },
+                { new: false }
+              );
+              const prevStock = prevDoc ? prevDoc.stock : prod.stock;
+              const newStock = prevStock + item.quantity;
+
+              await InventoryTransaction.create({
+                userId: req.user?._id,
+                product: prod._id,
+                type: 'RETURN',
+                quantity: item.quantity,
+                previousStock: prevStock,
+                newStock: newStock,
+                referenceId: returnInvoice,
+                notes: `Full return: Restored stock for ${sale.invoiceNumber || sale._id}`,
+                createdById: req.user?._id
+              });
+
+              restoredItemsForRecord.push({
+                product: prod._id,
+                quantity: item.quantity,
+                sellingPrice: item.sellingPrice,
+                costPrice: item.costPrice,
+                totalAmount: item.totalAmount,
+                restoredToStock: true,
+                condition: 'SELLABLE'
+              });
+            } else {
+              // Damaged return -> do not increment stock
+              await InventoryTransaction.create({
+                userId: req.user?._id,
+                product: prod._id,
+                type: 'RETURN',
+                quantity: 0,
+                previousStock: prod.stock,
+                newStock: prod.stock,
+                referenceId: returnInvoice,
+                notes: `Full return: Damaged/rejected items (${item.quantity} units) - NOT restored to sellable stock`,
+                createdById: req.user?._id
+              });
+
+              restoredItemsForRecord.push({
+                product: prod._id,
+                quantity: item.quantity,
+                sellingPrice: item.sellingPrice,
+                costPrice: item.costPrice,
+                totalAmount: item.totalAmount,
+                restoredToStock: false,
+                condition: 'DAMAGED'
+              });
+            }
+          }
+        }
+      }
+    }
+    // Note: If simple amount-only sale, inventory is never touched.
+
+    // 2. Create SaleReturn record
+    const effectiveRefundMode = refundMode || (sale.amountReceived >= requestedAmount ? 'REFUND_PAID' : 'REDUCE_RECEIVABLE');
+    const refundCashAmount = effectiveRefundMode === 'REFUND_PAID' ? requestedAmount : 0;
+
+    const saleReturn = new SaleReturn({
+      userId: req.user?._id,
+      saleId: sale._id,
+      invoiceNumber: returnInvoice,
+      originalInvoiceNumber: sale.invoiceNumber || '',
+      customer: sale.customer?._id || sale.customer,
+      returnDate: new Date(),
+      amount: requestedAmount,
+      refundMode: effectiveRefundMode,
+      refundAmount: refundCashAmount,
+      items: restoredItemsForRecord,
+      reason: reasonText,
+      restoreStock: shouldRestoreSellableStock,
+      idempotencyKey: idempotencyKey || undefined,
+      createdById: req.user?._id
+    });
+
+    await saleReturn.save();
+
+    // 3. Update Sale status & returned amount
+    sale.returnedAmount = previousReturned + requestedAmount;
+    if (sale.returnedAmount >= saleTotal) {
+      sale.status = 'RETURNED';
+    } else {
+      sale.status = 'PARTIALLY_RETURNED';
+    }
+    await sale.save();
+
+    // 4. Record Cash Refund payment transaction if money was refunded to customer
+    if (refundCashAmount > 0) {
+      const custName = sale.customer?.name || 'Customer';
+      await PaymentTransaction.create({
+        userId: req.user?._id,
+        type: 'GIVE',
+        partyType: 'CUSTOMER',
+        partyId: sale.customer?._id || sale.customer,
+        partyModel: 'Customer',
+        partyName: custName,
+        amount: refundCashAmount,
+        paymentMethod: sale.paymentMethod || 'CASH',
+        transactionDate: new Date(),
+        referenceNumber: returnInvoice,
+        notes: `Refund for return ${returnInvoice} (Sale: ${sale.invoiceNumber || sale._id})`,
+        createdById: req.user?._id
+      });
+    }
+
+    const updatedSale = await Sale.findById(sale._id)
+      .populate('customer', 'name email phone address')
+      .populate('product', 'name price sellingPrice costPrice category stock')
+      .populate('items.product', 'name price sellingPrice costPrice category stock');
+
+    res.status(200).json({
+      success: true,
+      message: 'Sale return processed successfully.',
+      return: saleReturn,
+      sale: updatedSale
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Error processing sale return', error: error.message });
+  }
+};
+
+// GET /api/sales/:id/returns — Fetch returns for a specific sale
+exports.getSaleReturns = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const returns = await SaleReturn.find({
+      saleId: id,
+      ...getTenantQuery(req)
+    }).sort({ returnDate: -1 });
+
+    res.status(200).json(returns);
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Error fetching sale returns', error: error.message });
+  }
+};
+
+// DELETE /api/sales/:id/returns/:returnId OR DELETE /api/sales/returns/:returnId — Delete/Reverse Sale Return
+exports.deleteSaleReturn = async (req, res) => {
+  try {
+    const returnId = req.params.returnId || req.params.id;
+    const saleReturn = await SaleReturn.findById(returnId);
+    if (!saleReturn || !hasTenantAccess(saleReturn, req)) {
+      return res.status(404).json({ success: false, message: 'Sale return record not found.' });
+    }
+
+    const sale = await Sale.findById(saleReturn.saleId);
+    if (!sale || !hasTenantAccess(sale, req)) {
+      return res.status(404).json({ success: false, message: 'Associated sale record not found.' });
+    }
+
+    // 1. If return had restored stock to sellable inventory, check if that stock is still available to deduct
+    const itemsToDeduct = [];
+    if (Array.isArray(saleReturn.items) && saleReturn.items.length > 0) {
+      for (const item of saleReturn.items) {
+        if (item.restoredToStock && item.product && Number(item.quantity) > 0) {
+          itemsToDeduct.push({ product: item.product, quantity: Number(item.quantity) });
+        }
+      }
+    }
+
+    // Validate all products have sufficient stock before reversing
+    for (const item of itemsToDeduct) {
+      const prod = await Product.findById(item.product);
+      if (prod && prod.stock < item.quantity) {
+        return res.status(400).json({
+          success: false,
+          message: `Cannot delete return: Returned stock for "${prod.name}" has already been sold or consumed. Available stock: ${prod.stock}, required to deduct: ${item.quantity}.`,
+          errorCode: 'INSUFFICIENT_STOCK_FOR_REVERSAL'
+        });
+      }
+    }
+
+    // Deduct restored stock atomically and log adjustment
+    for (const item of itemsToDeduct) {
+      const prevDoc = await Product.findOneAndUpdate(
+        { _id: item.product, ...getTenantQuery(req) },
+        { $inc: { stock: -item.quantity } },
+        { new: false }
+      );
+      const prevStock = prevDoc ? prevDoc.stock : 0;
+      await InventoryTransaction.create({
+        userId: req.user?._id,
+        product: item.product,
+        type: 'ADJUSTMENT',
+        quantity: -item.quantity,
+        previousStock: prevStock,
+        newStock: prevStock - item.quantity,
+        referenceId: saleReturn.invoiceNumber,
+        notes: `Reversal of deleted return ${saleReturn.invoiceNumber} (Sale: ${sale.invoiceNumber || sale._id})`,
+        createdById: req.user?._id
+      });
+    }
+
+    // 2. Remove refund PaymentTransaction if one was generated
+    if (saleReturn.refundAmount > 0) {
+      await PaymentTransaction.deleteMany({
+        referenceNumber: saleReturn.invoiceNumber,
+        ...getTenantQuery(req)
+      });
+    }
+
+    // 3. Reverse returnedAmount on Sale and recalculate status
+    const previousReturned = Number(sale.returnedAmount) || 0;
+    const newReturned = Math.max(0, previousReturned - (Number(saleReturn.amount) || 0));
+    sale.returnedAmount = newReturned;
+
+    const saleTotal = Number(sale.grandTotal || sale.totalAmount) || 0;
+    if (newReturned <= 0) {
+      sale.status = 'COMPLETED';
+    } else if (newReturned < saleTotal) {
+      sale.status = 'PARTIALLY_RETURNED';
+    } else {
+      sale.status = 'RETURNED';
+    }
+    await sale.save();
+
+    // 4. Delete the SaleReturn document
+    await SaleReturn.findByIdAndDelete(saleReturn._id);
+
+    const updatedSale = await Sale.findById(sale._id)
+      .populate('customer', 'name email phone address')
+      .populate('product', 'name price sellingPrice costPrice category stock')
+      .populate('items.product', 'name price sellingPrice costPrice category stock');
+
+    res.status(200).json({
+      success: true,
+      message: 'Sale return deleted and inventory/balances reversed successfully.',
+      sale: updatedSale,
+      deletedReturnId: returnId
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Error deleting sale return', error: error.message });
+  }
+};
+
+// DELETE /api/sales/:id — Admin Permanent Delete (With Stock Restoration & Return Protection)
 exports.deleteSale = async (req, res) => {
   try {
     const { id } = req.params;
@@ -327,8 +890,18 @@ exports.deleteSale = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Sale record not found.' });
     }
 
-    // If sale was COMPLETED, restore stock upon deletion
-    if (sale.status === 'COMPLETED') {
+    // Guard: Prevent deleting sales that have active returns
+    const hasReturns = (sale.returnedAmount > 0) || (await SaleReturn.exists({ saleId: id }));
+    if (hasReturns) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot delete a sale with active sales returns. Please delete or reverse the sales returns first.',
+        errorCode: 'HAS_RETURNS'
+      });
+    }
+
+    // If sale was COMPLETED (or active non-cancelled), restore stock upon deletion
+    if (sale.status !== 'CANCELLED') {
       let itemsToRestore = [];
       if (Array.isArray(sale.items) && sale.items.length > 0) {
         itemsToRestore = sale.items;
@@ -337,12 +910,35 @@ exports.deleteSale = async (req, res) => {
       }
 
       for (const item of itemsToRestore) {
-        const prod = await Product.findById(item.product);
-        if (prod) {
-          prod.stock += Number(item.quantity);
-          await prod.save();
+        if (item.product && Number(item.quantity) > 0) {
+          const prevDoc = await Product.findOneAndUpdate(
+            { _id: item.product, ...getTenantQuery(req) },
+            { $inc: { stock: Number(item.quantity) } },
+            { new: false }
+          );
+          if (prevDoc) {
+            await InventoryTransaction.create({
+              userId: req.user?._id,
+              product: item.product,
+              type: 'SALE_CANCELLED',
+              quantity: Number(item.quantity),
+              previousStock: prevDoc.stock,
+              newStock: prevDoc.stock + Number(item.quantity),
+              referenceId: sale.invoiceNumber || sale._id.toString(),
+              notes: `Stock restored due to deleted sale ${sale.invoiceNumber || sale._id}`,
+              createdById: req.user?._id
+            });
+          }
         }
       }
+    }
+
+    // Clean up any refund payment transactions associated with this sale
+    if (sale.invoiceNumber) {
+      await PaymentTransaction.deleteMany({
+        referenceNumber: sale.invoiceNumber,
+        ...getTenantQuery(req)
+      });
     }
 
     await Sale.findByIdAndDelete(id);
@@ -361,43 +957,84 @@ exports.bulkDeleteSales = async (req, res) => {
     }
 
     let deletedCount = 0;
+    const skippedWithReturns = [];
+
     for (const id of ids) {
       const sale = await Sale.findById(id);
       if (sale && hasTenantAccess(sale, req)) {
-        if (sale.status === 'COMPLETED') {
+        // Guard against deleting sales with returns
+        const hasReturns = (sale.returnedAmount > 0) || (await SaleReturn.exists({ saleId: id }));
+        if (hasReturns) {
+          skippedWithReturns.push(id);
+          continue;
+        }
+
+        if (sale.status !== 'CANCELLED') {
           let itemsToRestore = [];
           if (Array.isArray(sale.items) && sale.items.length > 0) {
             itemsToRestore = sale.items;
           } else if (sale.product) {
             itemsToRestore = [{ product: sale.product, quantity: sale.quantity }];
           }
+
           for (const item of itemsToRestore) {
-            const prod = await Product.findById(item.product);
-            if (prod) {
-              prod.stock += Number(item.quantity);
-              await prod.save();
+            if (item.product && Number(item.quantity) > 0) {
+              const prevDoc = await Product.findOneAndUpdate(
+                { _id: item.product, ...getTenantQuery(req) },
+                { $inc: { stock: Number(item.quantity) } },
+                { new: false }
+              );
+              if (prevDoc) {
+                await InventoryTransaction.create({
+                  userId: req.user?._id,
+                  product: item.product,
+                  type: 'SALE_CANCELLED',
+                  quantity: Number(item.quantity),
+                  previousStock: prevDoc.stock,
+                  newStock: prevDoc.stock + Number(item.quantity),
+                  referenceId: sale.invoiceNumber || sale._id.toString(),
+                  notes: `Stock restored due to bulk deleted sale ${sale.invoiceNumber || sale._id}`,
+                  createdById: req.user?._id
+                });
+              }
             }
           }
         }
+
+        if (sale.invoiceNumber) {
+          await PaymentTransaction.deleteMany({
+            referenceNumber: sale.invoiceNumber,
+            ...getTenantQuery(req)
+          });
+        }
+
         await Sale.findByIdAndDelete(id);
         deletedCount++;
       }
     }
 
-    res.status(200).json({ success: true, message: 'Sales deleted successfully', count: deletedCount });
+    res.status(200).json({
+      success: true,
+      message: 'Sales processed for deletion successfully.',
+      count: deletedCount,
+      skippedWithReturns
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Error performing bulk sale deletion', error: error.message });
   }
 };
 
-// PUT /api/sales/:id — Edit Completed Sale with Inventory Adjustments
+// PUT /api/sales/:id — Edit Sale (Supports both Itemized & Amount-Only Sales)
 exports.updateSale = async (req, res) => {
   try {
     const { id } = req.params;
     const {
       customer,
       items,
+      amount,
+      notes,
       paymentMethod,
+      amountReceived,
       discount = 0,
       tax = 0,
       saleDate
@@ -413,6 +1050,99 @@ exports.updateSale = async (req, res) => {
         success: false,
         message: 'Cannot edit a cancelled sale.',
         errorCode: 'SALE_CANCELLED'
+      });
+    }
+
+    const hasNewItems = Array.isArray(items) && items.length > 0;
+    const isExistingAmountOnly = (!existingSale.items || existingSale.items.length === 0) && !existingSale.product;
+
+    // Handle customer update if provided
+    if (customer) {
+      let targetCustomer;
+      if (mongoose.Types.ObjectId.isValid(customer)) {
+        targetCustomer = await Customer.findById(customer);
+      }
+      if (targetCustomer && hasTenantAccess(targetCustomer, req)) {
+        existingSale.customer = targetCustomer._id;
+      }
+    }
+
+    // Handle date update if provided
+    if (saleDate) {
+      let dateToParse = saleDate;
+      if (typeof saleDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(saleDate)) {
+        dateToParse = `${saleDate}T12:00:00`;
+      }
+      const d = new Date(dateToParse);
+      if (!isNaN(d.getTime())) {
+        existingSale.saleDate = d;
+      }
+    }
+
+    if (notes !== undefined) {
+      existingSale.notes = String(notes).trim();
+    }
+
+    if (paymentMethod) {
+      existingSale.paymentMethod = normalizePaymentMethod(paymentMethod);
+    }
+
+    // Branch A: Amount-only sale update (no item inventory tracking)
+    if (!hasNewItems && (isExistingAmountOnly || amount !== undefined || req.body.grandTotal !== undefined)) {
+      const rawAmount = amount !== undefined ? amount : (req.body.grandTotal || existingSale.grandTotal);
+      const newAmount = Number(rawAmount);
+
+      if (isNaN(newAmount) || newAmount <= 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Sale amount must be greater than 0.',
+          errorCode: 'INVALID_AMOUNT'
+        });
+      }
+
+      const discountVal = Number(discount !== undefined ? discount : existingSale.discount) || 0;
+      const taxVal = Number(tax !== undefined ? tax : existingSale.tax) || 0;
+      const grandTotalCalc = Math.max(0, newAmount - discountVal + taxVal);
+
+      // Guard: Cannot edit sale total to less than what was already returned
+      if (existingSale.returnedAmount > 0 && grandTotalCalc < existingSale.returnedAmount) {
+        return res.status(400).json({
+          success: false,
+          message: `New sale total (₹${grandTotalCalc}) cannot be less than already returned amount (₹${existingSale.returnedAmount}).`,
+          errorCode: 'CANNOT_REDUCE_BELOW_RETURNED'
+        });
+      }
+
+      existingSale.totalAmount = newAmount;
+      existingSale.subtotal = newAmount;
+      existingSale.discount = discountVal;
+      existingSale.tax = taxVal;
+      existingSale.grandTotal = grandTotalCalc;
+      if (amountReceived !== undefined) {
+        existingSale.amountReceived = Number(amountReceived) || 0;
+        existingSale.changeDue = Math.max(0, existingSale.amountReceived - grandTotalCalc);
+      }
+
+      await existingSale.save();
+
+      const updatedSale = await Sale.findById(existingSale._id)
+        .populate('customer', 'name email phone address')
+        .populate('product', 'name price sellingPrice costPrice category stock')
+        .populate('items.product', 'name price sellingPrice costPrice category stock');
+
+      return res.status(200).json({
+        success: true,
+        message: 'Sale updated successfully.',
+        sale: updatedSale
+      });
+    }
+
+    // Branch B: Itemized sale update with Inventory Adjustments
+    if (!hasNewItems) {
+      return res.status(400).json({
+        success: false,
+        message: 'At least one item is required to edit the sale.',
+        errorCode: 'MISSING_ITEMS'
       });
     }
 
@@ -434,39 +1164,35 @@ exports.updateSale = async (req, res) => {
     const newProductQtyMap = new Map();
     let normalizedNewItems = [];
 
-    if (Array.isArray(items) && items.length > 0) {
-      for (const item of items) {
-        if (!item.product || !item.quantity || Number(item.quantity) <= 0) {
-          return res.status(400).json({ success: false, message: 'Valid product and positive quantity required for each item.' });
-        }
-        const pId = item.product.toString();
-        const qty = Number(item.quantity);
-        newProductQtyMap.set(pId, (newProductQtyMap.get(pId) || 0) + qty);
-
-        const prodDoc = await Product.findById(item.product);
-        if (!prodDoc || prodDoc.isActive === false || !hasTenantAccess(prodDoc, req)) {
-          return res.status(404).json({ success: false, message: 'Product not found, inactive or unauthorized.' });
-        }
-
-        const itemSellingPrice = item.sellingPrice !== undefined ? Number(item.sellingPrice) : (prodDoc.sellingPrice || prodDoc.price);
-        const itemCostPrice = item.costPrice !== undefined ? Number(item.costPrice) : (prodDoc.costPrice || Math.round(itemSellingPrice * 0.7));
-        const itemTotalAmount = itemSellingPrice * qty;
-        const itemTotalCost = itemCostPrice * qty;
-        const itemProfit = itemTotalAmount - itemTotalCost;
-
-        normalizedNewItems.push({
-          productDoc: prodDoc,
-          product: prodDoc._id,
-          quantity: qty,
-          sellingPrice: itemSellingPrice,
-          costPrice: itemCostPrice,
-          totalAmount: itemTotalAmount,
-          totalCostAmount: itemTotalCost,
-          profit: itemProfit
-        });
+    for (const item of items) {
+      if (!item.product || !item.quantity || Number(item.quantity) <= 0) {
+        return res.status(400).json({ success: false, message: 'Valid product and positive quantity required for each item.' });
       }
-    } else {
-      return res.status(400).json({ success: false, message: 'At least one item is required to edit the sale.' });
+      const pId = item.product.toString();
+      const qty = Number(item.quantity);
+      newProductQtyMap.set(pId, (newProductQtyMap.get(pId) || 0) + qty);
+
+      const prodDoc = await Product.findById(item.product);
+      if (!prodDoc || prodDoc.isActive === false || !hasTenantAccess(prodDoc, req)) {
+        return res.status(404).json({ success: false, message: 'Product not found, inactive or unauthorized.' });
+      }
+
+      const itemSellingPrice = item.sellingPrice !== undefined ? Number(item.sellingPrice) : (prodDoc.sellingPrice || prodDoc.price);
+      const itemCostPrice = item.costPrice !== undefined ? Number(item.costPrice) : (prodDoc.costPrice || Math.round(itemSellingPrice * 0.7));
+      const itemTotalAmount = itemSellingPrice * qty;
+      const itemTotalCost = itemCostPrice * qty;
+      const itemProfit = itemTotalAmount - itemTotalCost;
+
+      normalizedNewItems.push({
+        productDoc: prodDoc,
+        product: prodDoc._id,
+        quantity: qty,
+        sellingPrice: itemSellingPrice,
+        costPrice: itemCostPrice,
+        totalAmount: itemTotalAmount,
+        totalCostAmount: itemTotalCost,
+        profit: itemProfit
+      });
     }
 
     // 3. Compute Net Quantity Deltas for all involved products
@@ -501,7 +1227,30 @@ exports.updateSale = async (req, res) => {
       });
     }
 
-    // 4. Apply Stock Adjustments & Record Ledger Transactions
+    // 4. Calculate New Totals
+    let subtotalCalc = 0;
+    let totalCostCalc = 0;
+    let totalProfitCalc = 0;
+
+    for (const item of normalizedNewItems) {
+      subtotalCalc += item.totalAmount;
+      totalCostCalc += item.totalCostAmount;
+      totalProfitCalc += item.profit;
+    }
+
+    const discountVal = Number(discount) || 0;
+    const taxVal = Number(tax) || 0;
+    const grandTotalCalc = Math.max(0, subtotalCalc - discountVal + taxVal);
+
+    if (existingSale.returnedAmount > 0 && grandTotalCalc < existingSale.returnedAmount) {
+      return res.status(400).json({
+        success: false,
+        message: `New sale total (₹${grandTotalCalc}) cannot be less than already returned amount (₹${existingSale.returnedAmount}).`,
+        errorCode: 'CANNOT_REDUCE_BELOW_RETURNED'
+      });
+    }
+
+    // 5. Apply Stock Adjustments & Record Ledger Transactions
     for (const adj of inventoryAdjustments) {
       if (adj.deltaNeeded !== 0) {
         const prod = adj.productDoc;
@@ -523,39 +1272,7 @@ exports.updateSale = async (req, res) => {
       }
     }
 
-    // 5. Calculate New Totals & Update Sale Document
-    let subtotalCalc = 0;
-    let totalCostCalc = 0;
-    let totalProfitCalc = 0;
-
-    for (const item of normalizedNewItems) {
-      subtotalCalc += item.totalAmount;
-      totalCostCalc += item.totalCostAmount;
-      totalProfitCalc += item.profit;
-    }
-
-    const discountVal = Number(discount) || 0;
-    const taxVal = Number(tax) || 0;
-    const grandTotalCalc = Math.max(0, subtotalCalc - discountVal + taxVal);
-
-    if (customer) {
-      const targetCustomer = await Customer.findById(customer);
-      if (targetCustomer && hasTenantAccess(targetCustomer, req)) {
-        existingSale.customer = targetCustomer._id;
-      }
-    }
-
-    if (saleDate) {
-      let dateToParse = saleDate;
-      if (typeof saleDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(saleDate)) {
-        dateToParse = `${saleDate}T12:00:00`;
-      }
-      const d = new Date(dateToParse);
-      if (!isNaN(d.getTime())) {
-        existingSale.saleDate = d;
-      }
-    }
-
+    // 6. Update Sale Document
     const firstItem = normalizedNewItems[0];
     existingSale.product = firstItem.product;
     existingSale.items = normalizedNewItems.map(({ product, quantity, sellingPrice, costPrice, totalAmount, totalCostAmount, profit }) => ({
@@ -571,7 +1288,10 @@ exports.updateSale = async (req, res) => {
     existingSale.discount = discountVal;
     existingSale.tax = taxVal;
     existingSale.grandTotal = grandTotalCalc;
-    if (paymentMethod) existingSale.paymentMethod = normalizePaymentMethod(paymentMethod);
+    if (amountReceived !== undefined) {
+      existingSale.amountReceived = Number(amountReceived) || 0;
+      existingSale.changeDue = Math.max(0, existingSale.amountReceived - grandTotalCalc);
+    }
 
     await existingSale.save();
 

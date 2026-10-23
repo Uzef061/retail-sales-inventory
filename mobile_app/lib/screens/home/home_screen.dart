@@ -7,8 +7,11 @@ import '../../core/services/notification_service.dart';
 import '../../core/services/payment_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../models/dashboard_data.dart';
+import '../../models/ledger_entry.dart';
 import '../../models/payment_transaction.dart';
+import '../../core/services/ledger_service.dart';
 import '../more/notifications_screen.dart';
+import '../more/payments_history_screen.dart';
 import '../more/purchases_screen.dart';
 import '../more/reports_screen.dart';
 import '../sales/sale_receipt_dialog.dart';
@@ -28,9 +31,11 @@ class _HomeScreenState extends State<HomeScreen> {
   final ApiClient _apiClient = ApiClient();
   final NotificationService _notificationService = NotificationService();
   final PaymentService _paymentService = PaymentService();
+  final LedgerService _ledgerService = LedgerService();
 
   DashboardData? _dashboardData;
   PaymentSummary? _paymentSummary;
+  LedgerSummary _ledgerSummary = const LedgerSummary();
   int _unreadNotifCount = 0;
   bool _isLoading = true;
   String? _errorMessage;
@@ -53,9 +58,14 @@ class _HomeScreenState extends State<HomeScreen> {
         _dashboardData = DashboardData.fromJson(res);
       }
 
-      // Load Payment Summary & Notifications in parallel
+      // Load Payment Summary, Ledger Summary & Notifications in parallel
       try {
         _paymentSummary = await _paymentService.getSummary();
+      } catch (_) {}
+
+      try {
+        final ledgerData = await _ledgerService.getLedger(period: 'month');
+        _ledgerSummary = ledgerData.summary;
       } catch (_) {}
 
       try {
@@ -338,7 +348,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               const SizedBox(width: 12),
 
-              // GIVE BUTTON (Cash Out)
+              // PAYMENT BUTTON (Cash Out)
               Expanded(
                 child: InkWell(
                   onTap: () => _openReceiveGiveDialog('GIVE'),
@@ -373,7 +383,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'GIVE',
+                                'PAYMENT',
                                 style: TextStyle(
                                   fontSize: 14,
                                   fontWeight: FontWeight.w900,
@@ -394,6 +404,152 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 16),
+
+          // 1b. Prominent Business Ledger Summary: TO RECEIVE & TO PAY
+          InkWell(
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const PaymentsHistoryScreen()),
+              );
+            },
+            borderRadius: BorderRadius.circular(16),
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: AppTheme.cardBackground,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: AppTheme.cardBorder),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.03),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'BUSINESS LEDGER',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                          color: AppTheme.textMuted,
+                          letterSpacing: 0.8,
+                        ),
+                      ),
+                      Row(
+                        children: const [
+                          Text('View All', style: TextStyle(fontSize: 11, color: AppTheme.primary, fontWeight: FontWeight.bold)),
+                          SizedBox(width: 2),
+                          Icon(Icons.chevron_right, size: 16, color: AppTheme.primary),
+                        ],
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      // TO RECEIVE
+                      Expanded(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFE8F5E9),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: const Color(0xFFC8E6C9)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Row(
+                                children: [
+                                  Icon(Icons.call_received_rounded, size: 14, color: Color(0xFF2E7D32)),
+                                  SizedBox(width: 4),
+                                  Text(
+                                    'TO RECEIVE',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w800,
+                                      color: Color(0xFF1B5E20),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                '₹${_ledgerSummary.toReceive.toStringAsFixed(0)}',
+                                style: const TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w900,
+                                  color: Color(0xFF1B5E20),
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              const Text(
+                                'Customers owe you',
+                                style: TextStyle(fontSize: 10, color: Color(0xFF2E7D32)),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      // TO PAY
+                      Expanded(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFBE9E7),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: const Color(0xFFFFCCBC)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Row(
+                                children: [
+                                  Icon(Icons.call_made_rounded, size: 14, color: Color(0xFFD84315)),
+                                  SizedBox(width: 4),
+                                  Text(
+                                    'TO PAY',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w800,
+                                      color: Color(0xFFBF360C),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                '₹${_ledgerSummary.toPay.toStringAsFixed(0)}',
+                                style: const TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w900,
+                                  color: Color(0xFFBF360C),
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              const Text(
+                                'You owe suppliers',
+                                style: TextStyle(fontSize: 10, color: Color(0xFFD84315)),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
           ),
           const SizedBox(height: 16),
 
@@ -507,7 +663,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('Total Given (Out)', style: TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
+                          const Text('Total Paid (Out)', style: TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
                           const SizedBox(height: 4),
                           Text(
                             '-₹${_paymentSummary!.totalGiven.toStringAsFixed(0)}',

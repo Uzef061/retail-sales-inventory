@@ -111,6 +111,62 @@ class _AddProductDialogState extends State<AddProductDialog> {
     }
   }
 
+  Future<void> _deleteProduct() async {
+    if (widget.existingProduct == null) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Delete "${widget.existingProduct!.name}"?'),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Are you sure you want to remove this product?'),
+            SizedBox(height: 10),
+            Text('• If past sales, purchases, or returns exist, the product will be safely deactivated to protect historical reports.'),
+            Text('• If no transaction history exists, the product record will be permanently deleted.'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.error),
+            child: const Text('Delete / Deactivate'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      await _apiClient.delete('${ApiConfig.products}/${widget.existingProduct!.id}');
+      widget.onSaved();
+      if (mounted) {
+        Navigator.of(context).pop();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Product removed / deactivated.'), backgroundColor: AppTheme.success),
+        );
+      }
+    } on ApiException catch (e) {
+      setState(() => _errorMessage = e.message);
+    } catch (e) {
+      setState(() => _errorMessage = 'Failed to delete product: $e');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final isEditing = widget.existingProduct != null;
@@ -253,6 +309,18 @@ class _AddProductDialogState extends State<AddProductDialog> {
                 const SizedBox(height: 24),
 
                 // Actions
+                if (isEditing) ...[
+                  OutlinedButton.icon(
+                    onPressed: _isLoading ? null : _deleteProduct,
+                    icon: const Icon(Icons.delete_outline, size: 16, color: AppTheme.error),
+                    label: const Text('Delete / Deactivate Product', style: TextStyle(color: AppTheme.error, fontWeight: FontWeight.w700)),
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: AppTheme.error),
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
                 Row(
                   children: [
                     Expanded(

@@ -185,10 +185,9 @@ class _AddSupplierDialogState extends State<AddSupplierDialog> {
                   controller: _emailController,
                   keyboardType: TextInputType.emailAddress,
                   decoration: const InputDecoration(
-                    labelText: 'Email Address *',
+                    labelText: 'Email Address (Optional)',
                     prefixIcon: Icon(Icons.email_outlined, size: 20),
                   ),
-                  validator: (v) => (v == null || v.trim().isEmpty) ? 'Email is required' : null,
                 ),
                 const SizedBox(height: 12),
 

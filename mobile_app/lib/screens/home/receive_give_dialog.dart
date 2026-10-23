@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import '../../core/services/api_client.dart';
+import '../../core/services/ledger_service.dart';
 import '../../core/services/payment_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../models/customer.dart';
+import '../../models/ledger_entry.dart';
 import '../../models/supplier.dart';
 
 class ReceiveGiveDialog extends StatefulWidget {
@@ -27,6 +29,7 @@ class _ReceiveGiveDialogState extends State<ReceiveGiveDialog> {
   final _notesController = TextEditingController();
 
   final PaymentService _paymentService = PaymentService();
+  final LedgerService _ledgerService = LedgerService();
   final ApiClient _apiClient = ApiClient();
 
   String _selectedPaymentMethod = 'CASH';
@@ -37,6 +40,7 @@ class _ReceiveGiveDialogState extends State<ReceiveGiveDialog> {
 
   List<Customer> _customers = [];
   List<Supplier> _suppliers = [];
+  LedgerSummary _ledgerSummary = const LedgerSummary();
 
   final String _idempotencyKey = 'pay_${DateTime.now().millisecondsSinceEpoch}';
 
@@ -45,7 +49,7 @@ class _ReceiveGiveDialogState extends State<ReceiveGiveDialog> {
   @override
   void initState() {
     super.initState();
-    _loadParties();
+    _loadPartiesAndSummary();
   }
 
   @override
@@ -57,26 +61,33 @@ class _ReceiveGiveDialogState extends State<ReceiveGiveDialog> {
     super.dispose();
   }
 
-  Future<void> _loadParties() async {
+  Future<void> _loadPartiesAndSummary() async {
     try {
-      if (isReceive) {
-        final res = await _apiClient.get('/api/customers?activeOnly=true');
-        if (res is List && mounted) {
-          setState(() {
-            _customers = res.map((c) => Customer.fromJson(c as Map<String, dynamic>)).toList();
-          });
-        }
-      } else {
-        final res = await _apiClient.get('/api/suppliers?activeOnly=true');
-        if (res is List && mounted) {
-          setState(() {
-            _suppliers = res.map((s) => Supplier.fromJson(s as Map<String, dynamic>)).toList();
-          });
-        }
+      final results = await Future.wait([
+        isReceive
+            ? _apiClient.get('/api/customers?activeOnly=true')
+            : _apiClient.get('/api/suppliers?activeOnly=true'),
+        _ledgerService.getLedger(period: 'month'),
+      ]);
+
+      if (mounted) {
+        setState(() {
+          final partyRes = results[0];
+          if (partyRes is List) {
+            if (isReceive) {
+              _customers = partyRes.map((c) => Customer.fromJson(c as Map<String, dynamic>)).toList();
+            } else {
+              _suppliers = partyRes.map((s) => Supplier.fromJson(s as Map<String, dynamic>)).toList();
+            }
+          }
+
+          final ledgerRes = results[1] as LedgerDataResult;
+          _ledgerSummary = ledgerRes.summary;
+          _isLoadingParties = false;
+        });
       }
     } catch (e) {
       debugPrint('[PAYMENT_DIALOG] Parties load error: $e');
-    } finally {
       if (mounted) setState(() => _isLoadingParties = false);
     }
   }
@@ -123,7 +134,7 @@ class _ReceiveGiveDialogState extends State<ReceiveGiveDialog> {
               children: [
                 const Icon(Icons.check_circle_outline, color: Colors.white, size: 20),
                 const SizedBox(width: 8),
-                Text(isReceive ? 'Payment received recorded!' : 'Payment given recorded!'),
+                Text(isReceive ? 'Payment received recorded!' : 'Payment recorded!'),
               ],
             ),
             backgroundColor: isReceive ? AppTheme.success : AppTheme.primary,
@@ -143,7 +154,7 @@ class _ReceiveGiveDialogState extends State<ReceiveGiveDialog> {
   @override
   Widget build(BuildContext context) {
     final themeColor = isReceive ? AppTheme.success : const Color(0xFFD9534F);
-    final actionLabel = isReceive ? 'Receive Payment (In)' : 'Give Payment (Out)';
+    final actionLabel = isReceive ? 'Receive Payment (Money In)' : 'PAYMENT (Money Out)';
 
     return Container(
       padding: EdgeInsets.only(
@@ -186,13 +197,15 @@ class _ReceiveGiveDialogState extends State<ReceiveGiveDialog> {
                         Text(
                           actionLabel,
                           style: TextStyle(
-                            fontSize: 18,
+                            fontSize: 17,
                             fontWeight: FontWeight.w800,
                             color: themeColor,
                           ),
                         ),
                         Text(
-                          isReceive ? 'Record money received from customer' : 'Record money paid to supplier',
+                          isReceive
+                              ? 'Customer pays debt or advance'
+                              : 'Money paid to supplier or vendor',
                           style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
                         ),
                       ],
@@ -204,7 +217,56 @@ class _ReceiveGiveDialogState extends State<ReceiveGiveDialog> {
                   ),
                 ],
               ),
-              const Divider(height: 24),
+              const SizedBox(height: 12),
+
+              // Prominent TO RECEIVE & TO PAY Status Bar
+              Container(
+                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
+                decoration: BoxDecoration(
+                  color: AppTheme.surface,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppTheme.cardBorder),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'TO RECEIVE',
+                            style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: AppTheme.textMuted, letterSpacing: 0.5),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            '₹${_ledgerSummary.toReceive.toStringAsFixed(0)}',
+                            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFF2E7D32)),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Container(height: 28, width: 1, color: AppTheme.dividerColor),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'TO PAY',
+                            style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: AppTheme.textMuted, letterSpacing: 0.5),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            '₹${_ledgerSummary.toPay.toStringAsFixed(0)}',
+                            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFFD84315)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
 
               // Error banner if any
               if (_errorMessage != null) ...[
@@ -235,8 +297,8 @@ class _ReceiveGiveDialogState extends State<ReceiveGiveDialog> {
                   child: ListView(
                     scrollDirection: Axis.horizontal,
                     children: isReceive
-                        ? _customers.map((c) => _buildPartyChip(c.id, c.name)).toList()
-                        : _suppliers.map((s) => _buildPartyChip(s.id, s.name)).toList(),
+                        ? _customers.map((c) => _buildPartyChip(c.id, c.name, c.phone)).toList()
+                        : _suppliers.map((s) => _buildPartyChip(s.id, s.name, s.phone)).toList(),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -246,7 +308,7 @@ class _ReceiveGiveDialogState extends State<ReceiveGiveDialog> {
               TextFormField(
                 controller: _partyNameController,
                 decoration: InputDecoration(
-                  labelText: isReceive ? 'Customer / Party Name *' : 'Supplier / Party Name *',
+                  labelText: isReceive ? 'Customer Name *' : 'Supplier / Party Name *',
                   prefixIcon: const Icon(Icons.person_outline, size: 20),
                 ),
                 validator: (val) {
@@ -313,7 +375,7 @@ class _ReceiveGiveDialogState extends State<ReceiveGiveDialog> {
               TextFormField(
                 controller: _refNumberController,
                 decoration: const InputDecoration(
-                  labelText: 'Reference / Invoice / Receipt # (Optional)',
+                  labelText: 'Reference / Receipt # (Optional)',
                   prefixIcon: Icon(Icons.tag, size: 20),
                 ),
               ),
@@ -347,7 +409,7 @@ class _ReceiveGiveDialogState extends State<ReceiveGiveDialog> {
                         child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white),
                       )
                     : Text(
-                        isReceive ? 'Save Received Cash (In)' : 'Save Given Cash (Out)',
+                        isReceive ? 'Save Received Payment (In)' : 'Save Payment (Out)',
                         style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
                       ),
               ),
@@ -358,12 +420,13 @@ class _ReceiveGiveDialogState extends State<ReceiveGiveDialog> {
     );
   }
 
-  Widget _buildPartyChip(String id, String name) {
+  Widget _buildPartyChip(String id, String name, String phone) {
     final isSelected = _selectedPartyId == id;
+    final displayLabel = phone.isNotEmpty ? '$name ($phone)' : name;
     return Padding(
       padding: const EdgeInsets.only(right: 6),
       child: FilterChip(
-        label: Text(name, style: const TextStyle(fontSize: 12)),
+        label: Text(displayLabel, style: const TextStyle(fontSize: 12)),
         selected: isSelected,
         selectedColor: (isReceive ? AppTheme.success : AppTheme.primary).withValues(alpha: 0.2),
         onSelected: (val) {

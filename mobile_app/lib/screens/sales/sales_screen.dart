@@ -1,11 +1,14 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../core/config/api_config.dart';
 import '../../core/services/api_client.dart';
+import '../../core/services/sales_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../models/customer.dart';
 import '../../models/product.dart';
 import '../../models/sale.dart';
+import 'return_sale_dialog.dart';
 import 'sale_receipt_dialog.dart';
 
 class CartEntry {
@@ -35,8 +38,22 @@ class SalesScreen extends StatefulWidget {
 class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStateMixin {
   late TabController _tabController;
   final ApiClient _apiClient = ApiClient();
+  final SalesService _salesService = SalesService();
 
-  // POS State
+  // Mode: 0 = Fast Quick Sale (3-field rapid entry), 1 = POS Itemized Cart
+  int _entryMode = 1;
+
+  // Quick Sale State
+  final TextEditingController _quickPhoneController = TextEditingController();
+  final TextEditingController _quickNameController = TextEditingController();
+  final TextEditingController _quickAmountController = TextEditingController();
+  final TextEditingController _quickNotesController = TextEditingController();
+  String _quickPaymentMethod = 'CASH'; // CASH, UPI, CARD, CREDIT
+  Customer? _matchedCustomer;
+  bool _isSavingQuickSale = false;
+  String? _quickSaleIdempotencyKey;
+
+  // POS Itemized Cart State
   List<Product> _products = [];
   List<Customer> _customers = [];
   Customer? _selectedCustomer;
@@ -49,20 +66,25 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
   String? _posError;
   bool _isCheckingOut = false;
 
-  // History State
+  // Sales History State
   List<Sale> _sales = [];
   bool _isLoadingHistory = true;
   String? _historyError;
   final TextEditingController _historySearchController = TextEditingController();
-  String _historyFilter = 'ALL'; // ALL, COMPLETED, CANCELLED
+  String _historyFilter = 'ALL'; // ALL, COMPLETED, RETURNED, CANCELLED
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
     _tabController.addListener(() => setState(() {}));
+    _initQuickSaleIdempotency();
     _loadPosData();
     _loadSalesHistory();
+  }
+
+  void _initQuickSaleIdempotency() {
+    _quickSaleIdempotencyKey = 'qs_${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(999999)}';
   }
 
   @override
@@ -70,12 +92,17 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
     super.didUpdateWidget(oldWidget);
     if (widget.isSelected && !oldWidget.isSelected) {
       _loadPosData();
+      _loadSalesHistory();
     }
   }
 
   @override
   void dispose() {
     _tabController.dispose();
+    _quickPhoneController.dispose();
+    _quickNameController.dispose();
+    _quickAmountController.dispose();
+    _quickNotesController.dispose();
     _discountController.dispose();
     _taxController.dispose();
     _productSearchController.dispose();
@@ -139,7 +166,7 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
         _posError = e.message;
         _isLoadingPos = false;
       });
-    } catch (e) {
+    } catch (_) {
       setState(() {
         _posError = 'Could not load products. Please check connection.';
         _isLoadingPos = false;
@@ -180,6 +207,228 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
     }
   }
 
+  Future<void> _confirmAndDeleteSale(Sale s) async {
+    if (s.returnedAmount > 0) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Cannot Delete Sale'),
+          content: Text(
+            'Sale "${s.invoiceNumber}" has active returns (₹${s.returnedAmount.toStringAsFixed(0)}).\n\n'
+            'Please delete or reverse the sales returns first before deleting this sale.',
+          ),
+          actions: [
+            ElevatedButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Delete Sale ${s.invoiceNumber}?'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Are you sure you want to void / delete this sale?',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 12),
+            if (s.items.isNotEmpty)
+              Text('• Restores ${s.items.length} item(s) back into inventory.'),
+            Text('• Deducts ₹${s.grandTotal.toStringAsFixed(0)} from customer ledger & total sales.'),
+            const SizedBox(height: 6),
+            const Text(
+              '• This action cannot be undone.',
+              style: TextStyle(color: AppTheme.error, fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.error),
+            child: const Text('Delete Sale'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      await _salesService.deleteSale(s.id);
+      _loadSalesHistory();
+      _loadPosData();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Sale deleted and stock restored successfully.'),
+            backgroundColor: AppTheme.success,
+          ),
+        );
+      }
+    } on ApiException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.message), backgroundColor: AppTheme.error),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to delete sale.'), backgroundColor: AppTheme.error),
+        );
+      }
+    }
+  }
+
+  // --- Quick Sale Phone Auto-Lookup ---
+  void _onQuickPhoneChanged(String val) {
+    final clean = val.replaceAll(RegExp(r'\D'), '');
+    if (clean.length >= 7) {
+      final match = _customers.cast<Customer?>().firstWhere(
+        (c) => c != null && c.phone.replaceAll(RegExp(r'\D'), '').endsWith(clean),
+        orElse: () => null,
+      );
+      if (match != null) {
+        setState(() {
+          _matchedCustomer = match;
+          _quickNameController.text = match.name;
+        });
+      } else {
+        if (_matchedCustomer != null) {
+          setState(() {
+            _matchedCustomer = null;
+          });
+        }
+      }
+    } else {
+      if (_matchedCustomer != null) {
+        setState(() {
+          _matchedCustomer = null;
+        });
+      }
+    }
+  }
+
+  void _selectCustomerForQuickSale(Customer c) {
+    setState(() {
+      _matchedCustomer = c;
+      _quickPhoneController.text = c.phone;
+      _quickNameController.text = c.name;
+    });
+  }
+
+  Future<void> _handleQuickSaleSave() async {
+    if (_isSavingQuickSale) return;
+
+    final phone = _quickPhoneController.text.trim();
+    final name = _quickNameController.text.trim();
+    final amountText = _quickAmountController.text.trim();
+    final amount = double.tryParse(amountText) ?? 0.0;
+
+    if (phone.isEmpty && name.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter customer phone or name.'),
+          backgroundColor: AppTheme.error,
+        ),
+      );
+      return;
+    }
+
+    if (amount <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter a valid sale amount greater than 0.'),
+          backgroundColor: AppTheme.error,
+        ),
+      );
+      return;
+    }
+
+    setState(() => _isSavingQuickSale = true);
+
+    try {
+      final effectivePaymentMethod = _quickPaymentMethod == 'CREDIT' ? 'OTHER' : _quickPaymentMethod;
+      final amountReceived = _quickPaymentMethod == 'CREDIT' ? 0.0 : amount;
+
+      final createdSale = await _salesService.createSale(
+        customerId: _matchedCustomer?.id,
+        customerName: name.isNotEmpty ? name : 'Customer',
+        customerPhone: phone,
+        amount: amount,
+        amountReceived: amountReceived,
+        paymentMethod: effectivePaymentMethod,
+        notes: _quickNotesController.text.trim(),
+        idempotencyKey: _quickSaleIdempotencyKey,
+      );
+
+      // Reset form and generate fresh idempotency key
+      setState(() {
+        _quickPhoneController.clear();
+        _quickNameController.clear();
+        _quickAmountController.clear();
+        _quickNotesController.clear();
+        _matchedCustomer = null;
+        _quickPaymentMethod = 'CASH';
+        _initQuickSaleIdempotency();
+      });
+
+      // Reload customers and history
+      _loadPosData();
+      _loadSalesHistory();
+
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (_) => SaleReceiptDialog(
+            sale: createdSale,
+            onReturnProcessed: _loadSalesHistory,
+            onSaleDeleted: () {
+              _loadSalesHistory();
+              _loadPosData();
+            },
+          ),
+        );
+      }
+    } on ApiException catch (e) {
+      if (mounted) {
+        _loadPosData();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.isConflict
+                ? '⚠️ ${e.message}'
+                : e.message),
+            backgroundColor: AppTheme.error,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to record sale. Please try again.'), backgroundColor: AppTheme.error),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSavingQuickSale = false);
+    }
+  }
+
+  // --- POS Cart Logic ---
   void _addToCart(Product product) {
     if (product.stock <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -246,7 +495,9 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
   double get _tax => double.tryParse(_taxController.text) ?? 0.0;
   double get _grandTotal => (_subtotal - _discount + _tax).clamp(0.0, double.infinity);
 
-  Future<void> _handleCheckout() async {
+  Future<void> _handlePosCheckout() async {
+    if (_isCheckingOut) return;
+
     if (_cart.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Cart is empty. Add products to proceed.')),
@@ -277,6 +528,7 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
       'tax': _tax,
       'paymentMethod': _paymentMethod,
       'amountReceived': _grandTotal,
+      'idempotencyKey': 'pos_${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(999999)}',
     };
 
     try {
@@ -295,16 +547,30 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
       if (mounted) {
         showDialog(
           context: context,
-          builder: (_) => SaleReceiptDialog(sale: createdSale),
+          builder: (_) => SaleReceiptDialog(
+            sale: createdSale,
+            onReturnProcessed: _loadSalesHistory,
+            onSaleDeleted: () {
+              _loadSalesHistory();
+              _loadPosData();
+            },
+          ),
         );
       }
     } on ApiException catch (e) {
       if (mounted) {
+        _loadPosData();
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.message), backgroundColor: AppTheme.error),
+          SnackBar(
+            content: Text(e.isConflict
+                ? '⚠️ ${e.message}'
+                : e.message),
+            backgroundColor: AppTheme.error,
+            duration: const Duration(seconds: 4),
+          ),
         );
       }
-    } catch (e) {
+    } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Failed to complete sale.'), backgroundColor: AppTheme.error),
@@ -315,11 +581,28 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
     }
   }
 
+  void _openReturnDialog(Sale sale) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (_) => ReturnSaleDialog(sale: sale),
+    );
+
+    if (result == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Sale return recorded successfully.'),
+          backgroundColor: AppTheme.success,
+        ),
+      );
+      _loadSalesHistory();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Sales & POS'),
+        title: const Text('Sales & Ledger Billing'),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
@@ -341,7 +624,7 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Text('New Sale / POS'),
+                  const Text('New Sale'),
                   if (_cart.isNotEmpty) ...[
                     const SizedBox(width: 6),
                     CircleAvatar(
@@ -363,14 +646,14 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
       body: TabBarView(
         controller: _tabController,
         children: [
-          _buildPosView(),
+          _buildNewSaleView(),
           _buildHistoryView(),
         ],
       ),
     );
   }
 
-  Widget _buildPosView() {
+  Widget _buildNewSaleView() {
     if (_isLoadingPos) {
       return const Center(child: CircularProgressIndicator(color: AppTheme.primary));
     }
@@ -401,6 +684,372 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
       );
     }
 
+    return Column(
+      children: [
+        // Mode Switcher Banner
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          color: AppTheme.surface,
+          child: Row(
+            children: [
+              Expanded(
+                child: SegmentedButton<int>(
+                  segments: const [
+                    ButtonSegment<int>(
+                      value: 1,
+                      label: Text('🛒 POS Items Cart'),
+                      icon: Icon(Icons.shopping_cart_outlined, size: 16),
+                    ),
+                    ButtonSegment<int>(
+                      value: 0,
+                      label: Text('⚡ Fast Quick Sale'),
+                      icon: Icon(Icons.flash_on, size: 16),
+                    ),
+                  ],
+                  selected: {_entryMode},
+                  onSelectionChanged: (Set<int> newSelection) {
+                    setState(() {
+                      _entryMode = newSelection.first;
+                    });
+                  },
+                  style: const ButtonStyle(
+                    visualDensity: VisualDensity.compact,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const Divider(height: 1),
+
+        // Mode content
+        Expanded(
+          child: _entryMode == 0 ? _buildFastQuickSaleView() : _buildPosView(),
+        ),
+      ],
+    );
+  }
+
+  // ==========================================
+  // FAST QUICK SALE VIEW (3 RAPID FIELDS)
+  // ==========================================
+  Widget _buildFastQuickSaleView() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Info Card
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppTheme.primaryLight,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppTheme.primary.withValues(alpha: 0.2)),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.bolt, color: AppTheme.primary, size: 24),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: const [
+                      Text(
+                        'Rapid 3-Field Billing',
+                        style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: AppTheme.primary),
+                      ),
+                      Text(
+                        'Enter Phone, Name & Amount. Customer profile is auto-created or linked instantly.',
+                        style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Field 1: Customer Phone
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        '1. Customer Phone Number *',
+                        style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: AppTheme.textPrimary),
+                      ),
+                      if (_customers.isNotEmpty)
+                        TextButton.icon(
+                          onPressed: () {
+                            _showCustomerPickerModal();
+                          },
+                          icon: const Icon(Icons.contacts_outlined, size: 14),
+                          label: const Text('Existing List', style: TextStyle(fontSize: 11)),
+                          style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: _quickPhoneController,
+                    keyboardType: TextInputType.phone,
+                    decoration: InputDecoration(
+                      hintText: 'e.g. 9876543210',
+                      prefixIcon: const Icon(Icons.phone, size: 20),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                    ),
+                    onChanged: _onQuickPhoneChanged,
+                  ),
+                  if (_matchedCustomer != null) ...[
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        const Icon(Icons.check_circle, size: 14, color: AppTheme.success),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Found existing customer: ${_matchedCustomer!.name}',
+                          style: const TextStyle(fontSize: 11, color: AppTheme.success, fontWeight: FontWeight.w600),
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // Field 2: Customer Name
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    '2. Customer Name *',
+                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: AppTheme.textPrimary),
+                  ),
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: _quickNameController,
+                    decoration: InputDecoration(
+                      hintText: 'e.g. Ramesh Kumar',
+                      prefixIcon: const Icon(Icons.person, size: 20),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // Field 3: Sale Amount
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    '3. Sale Amount (₹) *',
+                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: AppTheme.textPrimary),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _quickAmountController,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: AppTheme.primary),
+                    decoration: InputDecoration(
+                      prefixText: '₹ ',
+                      prefixStyle: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: AppTheme.primary),
+                      hintText: '0',
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    ),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                  const SizedBox(height: 10),
+
+                  // Quick chips
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 6,
+                    children: [100, 200, 500, 1000, 2000, 5000].map((quickVal) {
+                      return ActionChip(
+                        label: Text('+₹$quickVal', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+                        onPressed: () {
+                          final current = double.tryParse(_quickAmountController.text.trim()) ?? 0.0;
+                          final newVal = current + quickVal;
+                          _quickAmountController.text = newVal.toStringAsFixed(0);
+                          setState(() {});
+                        },
+                      );
+                    }).toList(),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // Optional details
+          Card(
+            child: ExpansionTile(
+              initiallyExpanded: false,
+              title: const Text(
+                'Payment Mode & Notes (Optional)',
+                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+              ),
+              childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              children: [
+                // Payment Mode Chips
+                Row(
+                  children: [
+                    const Text('Mode: ', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12)),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Wrap(
+                        spacing: 6,
+                        runSpacing: 4,
+                        children: ['CASH', 'UPI', 'CARD', 'CREDIT'].map((mode) {
+                          final isSel = _quickPaymentMethod == mode;
+                          return ChoiceChip(
+                            label: Text(
+                              mode == 'CREDIT' ? 'CREDIT (DUE)' : mode,
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: isSel ? Colors.white : (mode == 'CREDIT' ? AppTheme.error : AppTheme.textPrimary),
+                              ),
+                            ),
+                            selected: isSel,
+                            selectedColor: mode == 'CREDIT' ? AppTheme.error : AppTheme.primary,
+                            onSelected: (_) => setState(() => _quickPaymentMethod = mode),
+                            showCheckmark: false,
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                  ],
+                ),
+                if (_quickPaymentMethod == 'CREDIT') ...[
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: AppTheme.errorLight,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(Icons.info_outline, size: 14, color: AppTheme.error),
+                        SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            'Full amount will be recorded as receivable debt owed by customer (TO RECEIVE).',
+                            style: TextStyle(fontSize: 11, color: AppTheme.error, fontWeight: FontWeight.w500),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 10),
+
+                // Notes Field
+                TextField(
+                  controller: _quickNotesController,
+                  decoration: InputDecoration(
+                    labelText: 'Notes / Bill Reference (Optional)',
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+
+          // Double-Tap Guard Complete Button
+          ElevatedButton.icon(
+            onPressed: _isSavingQuickSale ? null : _handleQuickSaleSave,
+            icon: _isSavingQuickSale
+                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                : const Icon(Icons.check_circle_outline, size: 20),
+            label: Text(
+              _isSavingQuickSale
+                  ? 'Saving Sale...'
+                  : 'Complete Sale • ₹${(double.tryParse(_quickAmountController.text.trim()) ?? 0.0).toStringAsFixed(0)}',
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+            ),
+            style: ElevatedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+          ),
+          const SizedBox(height: 40),
+        ],
+      ),
+    );
+  }
+
+  void _showCustomerPickerModal() {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) {
+        return Container(
+          padding: const EdgeInsets.all(16),
+          constraints: const BoxConstraints(maxHeight: 450),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Select Existing Customer', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+              const SizedBox(height: 12),
+              Expanded(
+                child: ListView.separated(
+                  itemCount: _customers.length,
+                  separatorBuilder: (_, _) => const Divider(height: 1),
+                  itemBuilder: (_, idx) {
+                    final c = _customers[idx];
+                    return ListTile(
+                      leading: CircleAvatar(
+                        backgroundColor: AppTheme.primaryLight,
+                        child: Text(c.name.isNotEmpty ? c.name[0].toUpperCase() : 'C', style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primary)),
+                      ),
+                      title: Text(c.name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                      subtitle: Text(c.phone.isNotEmpty ? c.phone : 'No phone', style: const TextStyle(fontSize: 12, color: AppTheme.textMuted)),
+                      onTap: () {
+                        Navigator.of(ctx).pop();
+                        _selectCustomerForQuickSale(c);
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  // ==========================================
+  // POS VIEW (MULTI-ITEM CATALOG)
+  // ==========================================
+  Widget _buildPosView() {
     final query = _productSearchController.text.toLowerCase().trim();
     final availableProducts = _products.where((p) {
       if (!p.isActive) return false;
@@ -419,7 +1068,6 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
           color: AppTheme.surface,
           child: Column(
             children: [
-              // Customer Dropdown
               if (_customers.isNotEmpty)
                 DropdownButtonFormField<Customer>(
                   initialValue: _selectedCustomer,
@@ -469,18 +1117,18 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
                     physics: const AlwaysScrollableScrollPhysics(),
                     children: [
                       SizedBox(
-                        height: 240,
+                        height: 200,
                         child: Center(
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              const Icon(Icons.inventory_2_outlined, size: 44, color: AppTheme.textMuted),
-                              const SizedBox(height: 12),
+                              const Icon(Icons.inventory_2_outlined, size: 40, color: AppTheme.textMuted),
+                              const SizedBox(height: 10),
                               Text(
                                 _productSearchController.text.trim().isNotEmpty
                                     ? 'No products matching "${_productSearchController.text.trim()}"'
                                     : 'No products available',
-                                style: const TextStyle(color: AppTheme.textSecondary, fontSize: 14),
+                                style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13),
                               ),
                               if (_productSearchController.text.trim().isNotEmpty) ...[
                                 const SizedBox(height: 8),
@@ -533,7 +1181,7 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
           ),
         ),
 
-        // Cart Drawer Section
+        // Cart Section
         Container(
           constraints: const BoxConstraints(maxHeight: 280),
           decoration: BoxDecoration(
@@ -563,7 +1211,7 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
                   ],
                 ),
               ),
-              const Divider(),
+              const Divider(height: 1),
 
               // Cart line items
               if (_cart.isEmpty)
@@ -641,7 +1289,7 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
 
               // Payment options & Checkout button
               if (_cart.isNotEmpty) ...[
-                const Divider(),
+                const Divider(height: 1),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 6, 16, 12),
                   child: Column(
@@ -679,7 +1327,7 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
                           ),
                           const Spacer(),
                           ElevatedButton.icon(
-                            onPressed: _isCheckingOut ? null : _handleCheckout,
+                            onPressed: _isCheckingOut ? null : _handlePosCheckout,
                             icon: _isCheckingOut
                                 ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                                 : const Icon(Icons.check, size: 18),
@@ -699,6 +1347,9 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
     );
   }
 
+  // ==========================================
+  // SALES HISTORY VIEW
+  // ==========================================
   Widget _buildHistoryView() {
     if (_isLoadingHistory) {
       return const Center(child: CircularProgressIndicator(color: AppTheme.primary));
@@ -726,10 +1377,12 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
     final filtered = _sales.where((s) {
       final matchesSearch = q.isEmpty ||
           s.invoiceNumber.toLowerCase().contains(q) ||
-          s.customerName.toLowerCase().contains(q);
+          s.customerName.toLowerCase().contains(q) ||
+          s.customerPhone.toLowerCase().contains(q);
 
       final matchesFilter = _historyFilter == 'ALL' ||
-          (_historyFilter == 'COMPLETED' && !s.isCancelled) ||
+          (_historyFilter == 'COMPLETED' && !s.isCancelled && !s.isReturned) ||
+          (_historyFilter == 'RETURNED' && (s.isReturned || s.isPartiallyReturned)) ||
           (_historyFilter == 'CANCELLED' && s.isCancelled);
 
       return matchesSearch && matchesFilter;
@@ -750,7 +1403,7 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
                 TextField(
                   controller: _historySearchController,
                   decoration: InputDecoration(
-                    hintText: 'Search by Invoice # or Customer...',
+                    hintText: 'Search by Invoice #, Customer or Phone...',
                     prefixIcon: const Icon(Icons.search, size: 20),
                     contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                     suffixIcon: _historySearchController.text.isNotEmpty
@@ -763,20 +1416,23 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
                   onChanged: (_) => setState(() {}),
                 ),
                 const SizedBox(height: 8),
-                Row(
-                  children: ['ALL', 'COMPLETED', 'CANCELLED'].map((f) {
-                    final isSel = _historyFilter == f;
-                    return Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: ChoiceChip(
-                        label: Text(f, style: TextStyle(fontSize: 11, color: isSel ? Colors.white : AppTheme.textPrimary)),
-                        selected: isSel,
-                        selectedColor: AppTheme.primary,
-                        onSelected: (_) => setState(() => _historyFilter = f),
-                        showCheckmark: false,
-                      ),
-                    );
-                  }).toList(),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: ['ALL', 'COMPLETED', 'RETURNED', 'CANCELLED'].map((f) {
+                      final isSel = _historyFilter == f;
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: ChoiceChip(
+                          label: Text(f, style: TextStyle(fontSize: 11, color: isSel ? Colors.white : AppTheme.textPrimary)),
+                          selected: isSel,
+                          selectedColor: AppTheme.primary,
+                          onSelected: (_) => setState(() => _historyFilter = f),
+                          showCheckmark: false,
+                        ),
+                      );
+                    }).toList(),
+                  ),
                 ),
               ],
             ),
@@ -792,12 +1448,30 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
                     separatorBuilder: (_, _) => const SizedBox(height: 10),
                     itemBuilder: (context, idx) {
                       final s = filtered[idx];
+
+                      Color badgeBg = AppTheme.successLight;
+                      Color badgeText = AppTheme.success;
+                      if (s.isCancelled) {
+                        badgeBg = AppTheme.errorLight;
+                        badgeText = AppTheme.error;
+                      } else if (s.isReturned || s.isPartiallyReturned) {
+                        badgeBg = AppTheme.warningLight;
+                        badgeText = AppTheme.warning;
+                      }
+
                       return Card(
                         child: InkWell(
                           onTap: () {
                             showDialog(
                               context: context,
-                              builder: (_) => SaleReceiptDialog(sale: s),
+                              builder: (_) => SaleReceiptDialog(
+                                sale: s,
+                                onReturnProcessed: _loadSalesHistory,
+                                onSaleDeleted: () {
+                                  _loadSalesHistory();
+                                  _loadPosData();
+                                },
+                              ),
                             );
                           },
                           borderRadius: BorderRadius.circular(16),
@@ -816,7 +1490,7 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
                                     Container(
                                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                                       decoration: BoxDecoration(
-                                        color: s.isCancelled ? AppTheme.errorLight : AppTheme.successLight,
+                                        color: badgeBg,
                                         borderRadius: BorderRadius.circular(12),
                                       ),
                                       child: Text(
@@ -824,7 +1498,7 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
                                         style: TextStyle(
                                           fontSize: 10,
                                           fontWeight: FontWeight.w700,
-                                          color: s.isCancelled ? AppTheme.error : AppTheme.success,
+                                          color: badgeText,
                                         ),
                                       ),
                                     ),
@@ -834,14 +1508,33 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
                                 Row(
                                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                   children: [
-                                    Text(s.customerName, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-                                    Text(
-                                      '₹${s.grandTotal.toStringAsFixed(0)}',
-                                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppTheme.textPrimary),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(s.customerName, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                                          if (s.customerPhone.isNotEmpty)
+                                            Text(s.customerPhone, style: const TextStyle(fontSize: 11, color: AppTheme.textMuted)),
+                                        ],
+                                      ),
+                                    ),
+                                    Column(
+                                      crossAxisAlignment: CrossAxisAlignment.end,
+                                      children: [
+                                        Text(
+                                          '₹${s.grandTotal.toStringAsFixed(0)}',
+                                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppTheme.textPrimary),
+                                        ),
+                                        if (s.returnedAmount > 0)
+                                          Text(
+                                            'Ret: -₹${s.returnedAmount.toStringAsFixed(0)}',
+                                            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppTheme.warning),
+                                          ),
+                                      ],
                                     ),
                                   ],
                                 ),
-                                const SizedBox(height: 4),
+                                const SizedBox(height: 6),
                                 Row(
                                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                   children: [
@@ -850,11 +1543,53 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
                                       style: const TextStyle(fontSize: 11, color: AppTheme.textMuted),
                                     ),
                                     Text(
-                                      '${s.items.length} items • ${s.paymentMethod}',
+                                      '${s.items.isEmpty ? "Quick Sale" : "${s.items.length} items"} • ${s.paymentMethod}',
                                       style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary),
                                     ),
                                   ],
                                 ),
+
+                                // Actions Row (Return & Delete)
+                                if (s.canReturn || !s.isCancelled) ...[
+                                  const SizedBox(height: 10),
+                                  const Divider(height: 1),
+                                  const SizedBox(height: 6),
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.end,
+                                    children: [
+                                      if (s.canReturn) ...[
+                                        OutlinedButton.icon(
+                                          onPressed: () => _openReturnDialog(s),
+                                          icon: const Icon(Icons.assignment_return, size: 14, color: AppTheme.warning),
+                                          label: const Text(
+                                            'Return',
+                                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppTheme.warning),
+                                          ),
+                                          style: OutlinedButton.styleFrom(
+                                            side: const BorderSide(color: AppTheme.warning),
+                                            visualDensity: VisualDensity.compact,
+                                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                      ],
+                                      if (!s.isCancelled)
+                                        OutlinedButton.icon(
+                                          onPressed: () => _confirmAndDeleteSale(s),
+                                          icon: const Icon(Icons.delete_outline, size: 14, color: AppTheme.error),
+                                          label: const Text(
+                                            'Delete',
+                                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppTheme.error),
+                                          ),
+                                          style: OutlinedButton.styleFrom(
+                                            side: const BorderSide(color: AppTheme.error),
+                                            visualDensity: VisualDensity.compact,
+                                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ],
                               ],
                             ),
                           ),

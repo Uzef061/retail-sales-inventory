@@ -75,6 +75,8 @@ class Sale {
   final double amountReceived;
   final double changeDue;
   final String status;
+  final double returnedAmount;
+  final String notes;
   final DateTime saleDate;
 
   Sale({
@@ -92,10 +94,16 @@ class Sale {
     this.amountReceived = 0.0,
     this.changeDue = 0.0,
     this.status = 'COMPLETED',
+    this.returnedAmount = 0.0,
+    this.notes = '',
     required this.saleDate,
   });
 
   bool get isCancelled => status.toUpperCase() == 'CANCELLED';
+  bool get isReturned => status.toUpperCase() == 'RETURNED';
+  bool get isPartiallyReturned => status.toUpperCase() == 'PARTIALLY_RETURNED';
+  double get remainingReturnable => (grandTotal - returnedAmount).clamp(0.0, double.infinity);
+  bool get canReturn => !isCancelled && !isReturned && remainingReturnable > 0;
 
   factory Sale.fromJson(Map<String, dynamic> json) {
     String custId = '';
@@ -169,6 +177,8 @@ class Sale {
       amountReceived: (json['amountReceived'] as num?)?.toDouble() ?? 0.0,
       changeDue: (json['changeDue'] as num?)?.toDouble() ?? 0.0,
       status: json['status']?.toString().toUpperCase() ?? 'COMPLETED',
+      returnedAmount: (json['returnedAmount'] as num?)?.toDouble() ?? 0.0,
+      notes: json['notes']?.toString() ?? '',
       saleDate: date,
     );
   }

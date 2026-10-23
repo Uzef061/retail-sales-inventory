@@ -1,6 +1,8 @@
 const Product = require('../models/Product');
 const Sale = require('../models/Sale');
 const Purchase = require('../models/Purchase');
+const SaleReturn = require('../models/SaleReturn');
+const InventoryTransaction = require('../models/InventoryTransaction');
 const { getTenantQuery, hasTenantAccess } = require('../utils/tenantHelper');
 
 // GET /api/products
@@ -108,6 +110,7 @@ exports.updateProduct = async (req, res) => {
     const finalSellingPrice = sellingPrice !== undefined ? Number(sellingPrice) : Number(price || 0);
     const finalCostPrice = costPrice !== undefined ? Number(costPrice) : Math.round(finalSellingPrice * 0.7);
 
+    const oldStock = product.stock;
     product.name = name.trim();
     product.category = category.trim();
     product.costPrice = finalCostPrice;
@@ -120,6 +123,22 @@ exports.updateProduct = async (req, res) => {
     if (isActive !== undefined) product.isActive = Boolean(isActive);
 
     const updatedProduct = await product.save();
+
+    // Log manual stock adjustment in InventoryTransaction if stock was edited
+    if (oldStock !== stockNum) {
+      await InventoryTransaction.create({
+        userId: req.user?._id,
+        product: product._id,
+        type: 'ADJUSTMENT',
+        quantity: stockNum - oldStock,
+        previousStock: oldStock,
+        newStock: stockNum,
+        referenceId: `ADJ-${Date.now().toString().slice(-8)}`,
+        notes: `Manual stock adjustment (${oldStock} -> ${stockNum})`,
+        createdById: req.user?._id
+      });
+    }
+
     res.status(200).json(updatedProduct);
   } catch (error) {
     res.status(500).json({ success: false, message: 'Error updating product', error: error.message });
@@ -135,11 +154,12 @@ exports.deleteProduct = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Product not found' });
     }
 
-    // Check if product is referenced in Sales or Purchases
+    // Check if product is referenced in Sales, Purchases, or Returns
     const hasSales = await Sale.exists({ $or: [{ product: id }, { 'items.product': id }] });
     const hasPurchases = await Purchase.exists({ product: id });
+    const hasReturns = await SaleReturn.exists({ 'items.product': id });
 
-    if (hasSales || hasPurchases) {
+    if (hasSales || hasPurchases || hasReturns) {
       // Soft delete to protect historical financial and ledger records
       product.isActive = false;
       await product.save();
@@ -152,7 +172,7 @@ exports.deleteProduct = async (req, res) => {
     }
 
     await Product.findByIdAndDelete(id);
-    res.status(200).json({ success: true, message: 'Product deleted successfully', id });
+    res.status(200).json({ success: true, message: 'Product deleted successfully', id, isSoftDeleted: false });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Error deleting product', error: error.message });
   }

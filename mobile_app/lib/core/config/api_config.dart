@@ -34,6 +34,7 @@ class ApiConfig {
   static const String notes = '/api/notes';
   static const String notifications = '/api/notifications';
   static const String reports = '/api/reports';
+  static const String ledger = '/api/ledger';
 
   // Generous request timeout for free Render cloud cold starts
   static const Duration timeoutDuration = Duration(seconds: 45);

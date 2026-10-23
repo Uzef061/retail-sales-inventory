@@ -33,7 +33,7 @@ const saleSchema = new mongoose.Schema(
       ref: 'Product'
     },
     items: [saleItemSchema],
-    quantity: { type: Number, required: true, min: 1, default: 1 },
+    quantity: { type: Number, required: true, min: 0, default: 1 },
     sellingPrice: { type: Number, required: true, min: 0, default: 0 },
     costPrice: { type: Number, required: true, min: 0, default: 0 },
     totalAmount: { type: Number, required: true, min: 0, default: 0 },
@@ -52,13 +52,16 @@ const saleSchema = new mongoose.Schema(
     changeDue: { type: Number, default: 0 },
     status: {
       type: String,
-      enum: ['COMPLETED', 'CANCELLED'],
+      enum: ['COMPLETED', 'CANCELLED', 'RETURNED', 'PARTIALLY_RETURNED'],
       default: 'COMPLETED'
     },
+    returnedAmount: { type: Number, default: 0 },
     cancelledAt: { type: Date },
     cancelledBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     cancellationReason: { type: String },
     saleDate: { type: Date, default: Date.now },
+    notes: { type: String, trim: true, default: '' },
+    idempotencyKey: { type: String, sparse: true, index: true },
     demoId: { type: String, sparse: true },
     isDemoRecord: { type: Boolean, default: false }
   },

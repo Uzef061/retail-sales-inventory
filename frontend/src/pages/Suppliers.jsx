@@ -184,7 +184,7 @@ export default function Suppliers() {
                   <th>Contact Person</th>
                   <th>Phone Number</th>
                   <th>Email Address</th>
-                  <th>Address</th>
+                  <th>Balance / Ledger</th>
                   <th>Status</th>
                   <th style={{ textAlign: 'right' }}>Actions</th>
                 </tr>
@@ -220,11 +220,23 @@ export default function Suppliers() {
                       )}
                     </td>
                     <td>
-                      {sup.address ? (
-                        <span style={{ fontSize: '0.825rem' }}>{sup.address}</span>
-                      ) : (
-                        <span className="text-muted">-</span>
-                      )}
+                      <span
+                        className={`badge ${
+                          sup.balanceStatus === 'OWED_TO_SUPPLIER' || sup.balance > 0
+                            ? 'badge-out-of-stock'
+                            : (sup.balanceStatus === 'SUPPLIER_ADVANCE' || sup.balance < 0
+                            ? 'badge-in-stock'
+                            : 'badge-low-stock')
+                        }`}
+                        style={{ fontSize: '0.8rem' }}
+                      >
+                        {sup.balanceLabel ||
+                          (sup.balance > 0
+                            ? `You owe ₹${sup.balance.toLocaleString()}`
+                            : (sup.balance < 0
+                            ? `Advance ₹${(-sup.balance).toLocaleString()}`
+                            : 'Settled (₹0)'))}
+                      </span>
                     </td>
                     <td>
                       <span className={`badge ${sup.isActive === false ? 'badge-out-of-stock' : 'badge-in-stock'}`}>
