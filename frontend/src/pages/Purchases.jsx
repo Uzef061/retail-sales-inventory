@@ -64,6 +64,9 @@ export default function Purchases({ defaultTab = 'new' }) {
     productId: '',
     quantity: 1,
     unitCostPrice: 0,
+    amountPaid: 0,
+    paymentMode: 'UNPAID', // 'UNPAID', 'PAID', 'PARTIALLY_PAID'
+    paymentMethod: 'CASH',
     purchaseDate: new Date().toISOString().split('T')[0],
     referenceNumber: '',
     notes: ''
@@ -95,10 +98,13 @@ export default function Purchases({ defaultTab = 'new' }) {
 
   const handleProductChange = (productId) => {
     const prod = products.find((p) => p._id === productId);
+    const newUnitCost = prod ? (prod.costPrice || Math.round((prod.sellingPrice || prod.price || 0) * 0.7)) : formData.unitCostPrice;
+    const newTotal = (Number(formData.quantity) || 1) * newUnitCost;
     setFormData((prev) => ({
       ...prev,
       productId,
-      unitCostPrice: prod ? (prod.costPrice || Math.round((prod.sellingPrice || prod.price || 0) * 0.7)) : prev.unitCostPrice
+      unitCostPrice: newUnitCost,
+      amountPaid: prev.paymentMode === 'PAID' ? newTotal : (prev.paymentMode === 'UNPAID' ? 0 : prev.amountPaid)
     }));
   };
 
@@ -108,6 +114,9 @@ export default function Purchases({ defaultTab = 'new' }) {
       productId: '',
       quantity: 1,
       unitCostPrice: 0,
+      amountPaid: 0,
+      paymentMode: 'UNPAID',
+      paymentMethod: 'CASH',
       purchaseDate: new Date().toISOString().split('T')[0],
       referenceNumber: '',
       notes: ''
@@ -136,7 +145,19 @@ export default function Purchases({ defaultTab = 'new' }) {
 
     try {
       setSubmitting(true);
-      const res = await axios.post('/api/purchases', formData);
+      const paidAmount = Number(formData.amountPaid) || 0;
+      const payload = {
+        supplier: formData.supplierId || undefined,
+        product: formData.productId,
+        quantity: Number(formData.quantity),
+        costPrice: Number(formData.unitCostPrice),
+        amountPaid: paidAmount,
+        paymentMethod: formData.paymentMethod || 'CASH',
+        purchaseDate: formData.purchaseDate,
+        referenceNumber: formData.referenceNumber,
+        notes: formData.notes
+      };
+      const res = await axios.post('/api/purchases', payload);
       setSuccessMsg(`Restock purchase order recorded successfully! Ref: ${res.data?.referenceNumber || 'PO'}. Product stock updated in inventory.`);
       handleClearForm();
       await fetchData();
@@ -150,6 +171,8 @@ export default function Purchases({ defaultTab = 'new' }) {
 
   const selectedProd = products.find((p) => p._id === formData.productId);
   const totalCost = (Number(formData.quantity) || 0) * (Number(formData.unitCostPrice) || 0);
+  const paidAmount = Number(formData.amountPaid) || 0;
+  const remainingPayable = Math.max(0, totalCost - paidAmount);
 
   // Filtering for Purchase History
   const filteredPurchases = purchases.filter((p) => {
@@ -342,6 +365,80 @@ export default function Purchases({ defaultTab = 'new' }) {
                 />
               </div>
 
+              {/* Payment Section */}
+              <div className="form-group" style={{ padding: '0.85rem', background: '#f8fafc', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                <label className="form-label fw-700" style={{ marginBottom: '0.5rem', display: 'block' }}>
+                  Amount Paid to Supplier Now (₹) *
+                </label>
+                <div className="input-group">
+                  <span className="input-group-addon addon-left">₹</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    className="form-control has-addon-left no-spinner"
+                    value={formData.amountPaid}
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value) || 0;
+                      let mode = 'PARTIALLY_PAID';
+                      if (val <= 0) mode = 'UNPAID';
+                      else if (val >= totalCost && totalCost > 0) mode = 'PAID';
+                      setFormData({ ...formData, amountPaid: val, paymentMode: mode });
+                    }}
+                    placeholder="0.00"
+                    required
+                  />
+                </div>
+
+                {/* Helper chips */}
+                <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    style={{ fontSize: '0.75rem', padding: '0.2rem 0.6rem', border: '1px solid var(--border-color)', background: formData.amountPaid === 0 ? 'var(--primary)' : 'white', color: formData.amountPaid === 0 ? 'white' : 'var(--text-color)' }}
+                    onClick={() => setFormData({ ...formData, amountPaid: 0, paymentMode: 'UNPAID' })}
+                  >
+                    ₹0 Credit (Unpaid)
+                  </button>
+                  {totalCost > 0 && (
+                    <>
+                      <button
+                        type="button"
+                        className="btn btn-sm"
+                        style={{ fontSize: '0.75rem', padding: '0.2rem 0.6rem', border: '1px solid var(--border-color)', background: 'white' }}
+                        onClick={() => setFormData({ ...formData, amountPaid: Math.round(totalCost * 0.5), paymentMode: 'PARTIALLY_PAID' })}
+                      >
+                        50% (₹{Math.round(totalCost * 0.5).toLocaleString('en-IN')})
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-sm"
+                        style={{ fontSize: '0.75rem', padding: '0.2rem 0.6rem', border: '1px solid var(--border-color)', background: formData.amountPaid >= totalCost ? 'var(--primary)' : 'white', color: formData.amountPaid >= totalCost ? 'white' : 'var(--text-color)' }}
+                        onClick={() => setFormData({ ...formData, amountPaid: totalCost, paymentMode: 'PAID' })}
+                      >
+                        Full ₹{totalCost.toLocaleString('en-IN')} Paid
+                      </button>
+                    </>
+                  )}
+                </div>
+
+                {paidAmount > 0 && (
+                  <div style={{ marginTop: '0.75rem' }}>
+                    <label className="form-label" style={{ fontSize: '0.8rem' }}>Payment Method / Source</label>
+                    <select
+                      className="form-control"
+                      value={formData.paymentMethod}
+                      onChange={(e) => setFormData({ ...formData, paymentMethod: e.target.value })}
+                    >
+                      <option value="CASH">Cash</option>
+                      <option value="UPI">UPI / Google Pay</option>
+                      <option value="BANK">Bank Transfer (NEFT/IMPS)</option>
+                      <option value="CHEQUE">Cheque</option>
+                    </select>
+                  </div>
+                )}
+              </div>
+
               <div className="form-group">
                 <label className="form-label">Notes / Batch Memo</label>
                 <textarea
@@ -377,6 +474,18 @@ export default function Purchases({ defaultTab = 'new' }) {
               <div className="display-sub">
                 {formData.quantity || 0} units × ₹{formData.unitCostPrice || 0} / unit
               </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.6rem 0', borderBottom: '1px solid var(--border-color)', fontSize: '0.9rem' }}>
+              <span className="muted-text">Amount Paid Now:</span>
+              <strong style={{ color: 'var(--success, #10b981)' }}>₹{paidAmount.toLocaleString('en-IN')}</strong>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.6rem 0', marginBottom: '1rem', fontSize: '0.95rem' }}>
+              <span className="fw-700">Added to Supplier Payable (TO PAY):</span>
+              <strong style={{ color: remainingPayable > 0 ? 'var(--error, #ef4444)' : 'var(--success, #10b981)', fontSize: '1.05rem' }}>
+                ₹{remainingPayable.toLocaleString('en-IN')}
+              </strong>
             </div>
 
             {selectedProd ? (

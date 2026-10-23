@@ -97,9 +97,17 @@ exports.createPurchase = async (req, res) => {
       }
     }
 
+    // Validate amountPaid is non-negative
+    if (amountPaid !== undefined && (isNaN(Number(amountPaid)) || Number(amountPaid) < 0)) {
+      return res.status(400).json({ success: false, message: 'Amount paid cannot be negative.' });
+    }
+
     // 1. Supplier resolution (Find by ID or find/create by phone/name)
     let targetSupplier;
-    const targetSupplierId = supplierId || supplier;
+    let targetSupplierId = supplierId || supplier;
+    if (typeof targetSupplierId === 'object' && targetSupplierId !== null) {
+      targetSupplierId = targetSupplierId._id || targetSupplierId.id;
+    }
 
     if (targetSupplierId && mongoose.Types.ObjectId.isValid(targetSupplierId)) {
       targetSupplier = await Supplier.findById(targetSupplierId);
@@ -139,7 +147,12 @@ exports.createPurchase = async (req, res) => {
 
     if (hasItemsArray) {
       for (const item of items) {
-        const prodId = item.product || item.productId;
+        let prodId = item.product || item.productId;
+        if (typeof prodId === 'object' && prodId !== null) {
+          prodId = prodId._id || prodId.id;
+        }
+        prodId = prodId ? String(prodId).trim() : '';
+
         const qty = Number(item.quantity);
         const cost = Number(item.costPrice !== undefined ? item.costPrice : (item.unitCostPrice !== undefined ? item.unitCostPrice : 0));
 
@@ -150,7 +163,17 @@ exports.createPurchase = async (req, res) => {
           });
         }
 
-        const prodDoc = await Product.findById(prodId);
+        let prodDoc = null;
+        if (mongoose.Types.ObjectId.isValid(prodId)) {
+          prodDoc = await Product.findById(prodId);
+        }
+        if (!prodDoc) {
+          prodDoc = await Product.findOne({
+            $or: [{ sku: prodId }, { name: prodId }],
+            ...getTenantQuery(req)
+          });
+        }
+
         if (!prodDoc || prodDoc.isActive === false || !hasTenantAccess(prodDoc, req)) {
           return res.status(404).json({
             success: false,
@@ -175,7 +198,12 @@ exports.createPurchase = async (req, res) => {
       }
     } else {
       // Legacy single-item format
-      const targetProductId = productId || product;
+      let targetProductId = productId || product;
+      if (typeof targetProductId === 'object' && targetProductId !== null) {
+        targetProductId = targetProductId._id || targetProductId.id;
+      }
+      targetProductId = targetProductId ? String(targetProductId).trim() : '';
+
       if (!targetProductId || !quantity) {
         return res.status(400).json({ success: false, message: 'At least one product item and quantity are required.' });
       }
@@ -185,7 +213,17 @@ exports.createPurchase = async (req, res) => {
         return res.status(400).json({ success: false, message: 'Quantity must be a positive number greater than 0.' });
       }
 
-      const targetProduct = await Product.findById(targetProductId);
+      let targetProduct = null;
+      if (mongoose.Types.ObjectId.isValid(targetProductId)) {
+        targetProduct = await Product.findById(targetProductId);
+      }
+      if (!targetProduct) {
+        targetProduct = await Product.findOne({
+          $or: [{ sku: targetProductId }, { name: targetProductId }],
+          ...getTenantQuery(req)
+        });
+      }
+
       if (!targetProduct || targetProduct.isActive === false || !hasTenantAccess(targetProduct, req)) {
         return res.status(404).json({ success: false, message: 'Active product not found or unauthorized.' });
       }

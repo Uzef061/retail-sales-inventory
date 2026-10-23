@@ -41,6 +41,7 @@ class _PurchasesScreenState extends State<PurchasesScreen> with SingleTickerProv
   List<Purchase> _purchases = [];
 
   // Form State
+  DateTime _purchaseDate = DateTime.now();
   Supplier? _selectedSupplier;
   final List<_PurchaseLineItem> _lineItems = [];
 
@@ -176,8 +177,11 @@ class _PurchasesScreenState extends State<PurchasesScreen> with SingleTickerProv
   double get _subtotal => _lineItems.fold<double>(0.0, (sum, i) => sum + i.total);
 
   void _syncAmountPaid() {
+    final previewQty = int.tryParse(_itemQtyController.text.trim()) ?? 0;
+    final previewCost = double.tryParse(_itemCostController.text.trim()) ?? (_itemSelectedProduct?.costPrice ?? 0.0);
+    final currentTotal = _lineItems.isNotEmpty ? _subtotal : (previewQty * previewCost).toDouble();
     if (_paymentMode == 'PAID') {
-      _amountPaidController.text = _subtotal.toStringAsFixed(0);
+      _amountPaidController.text = currentTotal.toStringAsFixed(0);
     } else if (_paymentMode == 'UNPAID') {
       _amountPaidController.text = '0';
     }
@@ -424,9 +428,22 @@ class _PurchasesScreenState extends State<PurchasesScreen> with SingleTickerProv
   }
 
   Future<void> _submitPurchaseOrder() async {
+    // Ergonomic safety: if no line items added yet, but user has selected a product and filled qty/cost, auto-add it!
+    if (_lineItems.isEmpty && _itemSelectedProduct != null) {
+      final qty = int.tryParse(_itemQtyController.text.trim()) ?? 0;
+      final cost = double.tryParse(_itemCostController.text.trim()) ?? _itemSelectedProduct!.costPrice;
+      if (qty > 0 && cost >= 0) {
+        _lineItems.add(_PurchaseLineItem(
+          product: _itemSelectedProduct!,
+          quantity: qty,
+          costPrice: cost,
+        ));
+      }
+    }
+
     if (_lineItems.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please add at least one product item to the order.')),
+        const SnackBar(content: Text('Please select a product and enter quantity to restock.')),
       );
       return;
     }
@@ -461,6 +478,7 @@ class _PurchasesScreenState extends State<PurchasesScreen> with SingleTickerProv
       'totalCost': total,
       'amountPaid': paid,
       'paymentMethod': _paymentMethod,
+      'purchaseDate': _purchaseDate.toIso8601String(),
       'referenceNumber': _refNumberController.text.trim(),
       'notes': _notesController.text.trim(),
       'idempotencyKey': 'po_${DateTime.now().millisecondsSinceEpoch}_${_refNumberController.text.trim()}',
@@ -485,6 +503,7 @@ class _PurchasesScreenState extends State<PurchasesScreen> with SingleTickerProv
         _notesController.clear();
         _paymentMode = 'UNPAID';
         _amountPaidController.text = '0';
+        _purchaseDate = DateTime.now();
         _initReferenceNumber();
       });
 
@@ -645,14 +664,16 @@ class _PurchasesScreenState extends State<PurchasesScreen> with SingleTickerProv
   }
 
   Widget _buildNewPurchaseView() {
-    final total = _subtotal;
+    final previewQty = int.tryParse(_itemQtyController.text.trim()) ?? 0;
+    final previewCost = double.tryParse(_itemCostController.text.trim()) ?? (_itemSelectedProduct?.costPrice ?? 0.0);
+    final total = _lineItems.isNotEmpty ? _subtotal : (previewQty * previewCost).toDouble();
     double paid = double.tryParse(_amountPaidController.text.trim()) ?? 0.0;
     if (_paymentMode == 'PAID') {
       paid = total;
     } else if (_paymentMode == 'UNPAID') {
       paid = 0.0;
     }
-    final remainingPayable = (total - paid).clamp(0.0, total);
+    final remainingPayable = (total - paid).clamp(0.0, double.infinity);
 
     return RefreshIndicator(
       onRefresh: _loadInitialData,
@@ -694,6 +715,44 @@ class _PurchasesScreenState extends State<PurchasesScreen> with SingleTickerProv
               ),
             ),
           ],
+
+          // Purchase Date Selector Card
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              child: Row(
+                children: [
+                  const Icon(Icons.calendar_today_outlined, size: 18, color: AppTheme.primary),
+                  const SizedBox(width: 10),
+                  const Text('Purchase Date:', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                  const Spacer(),
+                  OutlinedButton.icon(
+                    onPressed: () async {
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: _purchaseDate,
+                        firstDate: DateTime(2020),
+                        lastDate: DateTime.now().add(const Duration(days: 1)),
+                      );
+                      if (picked != null) {
+                        setState(() => _purchaseDate = picked);
+                      }
+                    },
+                    icon: const Icon(Icons.edit_calendar, size: 15),
+                    label: Text(
+                      DateFormat('dd MMM yyyy').format(_purchaseDate),
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
 
           // 1. Supplier Selector Section
           Card(
@@ -979,26 +1038,82 @@ class _PurchasesScreenState extends State<PurchasesScreen> with SingleTickerProv
                   ),
                   const SizedBox(height: 12),
 
-                  if (_paymentMode == 'PARTIALLY_PAID') ...[
-                    TextFormField(
-                      controller: _amountPaidController,
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                      decoration: const InputDecoration(
-                        labelText: 'Amount Paid Now (₹) *',
-                        prefixText: '₹ ',
-                        border: OutlineInputBorder(),
-                        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                      ),
-                      onChanged: (_) => setState(() {}),
+                  // Amount Paid Now Input (Always visible & editable)
+                  TextFormField(
+                    controller: _amountPaidController,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    decoration: InputDecoration(
+                      labelText: 'Amount Paid Now (₹) *',
+                      prefixText: '₹ ',
+                      border: const OutlineInputBorder(),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      helperText: _paymentMode == 'UNPAID'
+                          ? 'Zero paid now — Full total will increase supplier payable debt.'
+                          : (_paymentMode == 'PAID'
+                              ? 'Fully paid — Cash/bank reduced, zero added to payable.'
+                              : 'Partially paid — Paid portion reduces cash, remainder added to payable.'),
                     ),
-                    const SizedBox(height: 12),
-                  ],
+                    onChanged: (val) {
+                      final entered = double.tryParse(val.trim()) ?? 0.0;
+                      setState(() {
+                        if (entered <= 0) {
+                          _paymentMode = 'UNPAID';
+                        } else if (entered >= total && total > 0) {
+                          _paymentMode = 'PAID';
+                        } else {
+                          _paymentMode = 'PARTIALLY_PAID';
+                        }
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 8),
 
-                  if (_paymentMode != 'UNPAID') ...[
+                  // Quick Helper Chips
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 4,
+                    children: [
+                      ActionChip(
+                        avatar: const Icon(Icons.money_off, size: 14),
+                        label: const Text('₹0 Credit (Unpaid)', style: TextStyle(fontSize: 11)),
+                        onPressed: () {
+                          setState(() {
+                            _paymentMode = 'UNPAID';
+                            _amountPaidController.text = '0';
+                          });
+                        },
+                      ),
+                      if (total > 0) ...[
+                        ActionChip(
+                          avatar: const Icon(Icons.pie_chart_outline, size: 14),
+                          label: Text('50% (₹${(total * 0.5).toStringAsFixed(0)})', style: const TextStyle(fontSize: 11)),
+                          onPressed: () {
+                            setState(() {
+                              _paymentMode = 'PARTIALLY_PAID';
+                              _amountPaidController.text = (total * 0.5).toStringAsFixed(0);
+                            });
+                          },
+                        ),
+                        ActionChip(
+                          avatar: const Icon(Icons.check_circle_outline, size: 14),
+                          label: Text('Full ₹${total.toStringAsFixed(0)} Paid', style: const TextStyle(fontSize: 11)),
+                          onPressed: () {
+                            setState(() {
+                              _paymentMode = 'PAID';
+                              _amountPaidController.text = total.toStringAsFixed(0);
+                            });
+                          },
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+
+                  if (_paymentMode != 'UNPAID' && paid > 0) ...[
                     DropdownButtonFormField<String>(
                       value: _paymentMethod,
                       decoration: const InputDecoration(
-                        labelText: 'Payment Mode',
+                        labelText: 'Payment Mode / Source',
                         border: OutlineInputBorder(),
                         contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                       ),

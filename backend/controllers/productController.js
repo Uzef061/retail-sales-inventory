@@ -32,7 +32,7 @@ exports.getProducts = async (req, res) => {
   }
 };
 
-// POST /api/products
+// POST /api/products (Simplified Product Entry: Name, CP, SP)
 exports.createProduct = async (req, res) => {
   try {
     const { name, category, costPrice, sellingPrice, price, stock, reorderLevel, reorderQuantity, sku } = req.body;
@@ -40,43 +40,51 @@ exports.createProduct = async (req, res) => {
     if (!name || !name.trim()) {
       return res.status(400).json({ success: false, message: 'Product name is required.', errorCode: 'MISSING_NAME' });
     }
-    if (!category || !category.trim()) {
-      return res.status(400).json({ success: false, message: 'Category is required.', errorCode: 'MISSING_CATEGORY' });
-    }
-    if (stock === undefined || stock === null || isNaN(Number(stock))) {
-      return res.status(400).json({ success: false, message: 'Valid stock quantity is required.', errorCode: 'INVALID_STOCK' });
-    }
 
-    const stockNum = Number(stock);
-    if (stockNum < 0 || !Number.isInteger(stockNum)) {
-      return res.status(400).json({ success: false, message: 'Stock must be a non-negative integer.', errorCode: 'INVALID_STOCK_VAL' });
-    }
-
-    const finalSellingPrice = sellingPrice !== undefined ? Number(sellingPrice) : Number(price || 0);
+    const finalSellingPrice = sellingPrice !== undefined ? Number(sellingPrice) : (price !== undefined ? Number(price) : 0);
     const finalCostPrice = costPrice !== undefined ? Number(costPrice) : Math.round(finalSellingPrice * 0.7);
 
-    if (finalSellingPrice < 0 || finalCostPrice < 0) {
-      return res.status(400).json({ success: false, message: 'Prices cannot be negative values.', errorCode: 'NEGATIVE_PRICE' });
+    if (isNaN(finalSellingPrice) || isNaN(finalCostPrice) || finalSellingPrice < 0 || finalCostPrice < 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cost price and selling price must be valid non-negative numbers.',
+        errorCode: 'NEGATIVE_PRICE'
+      });
     }
+
+    // Default stock to 0 for newly created products unless explicitly provided
+    const stockNum = (stock !== undefined && stock !== null && stock !== '' && !isNaN(Number(stock)))
+      ? Math.max(0, Math.floor(Number(stock)))
+      : 0;
+
+    const finalCategory = (category && String(category).trim().length > 0) ? String(category).trim() : 'General';
 
     // Check duplicate product name within the tenant's workspace
     const dupQuery = getTenantQuery(req, { name: { $regex: `^${name.trim()}$`, $options: 'i' } });
     const existing = await Product.findOne(dupQuery);
     if (existing) {
-      return res.status(400).json({ success: false, message: `A product named "${name.trim()}" already exists.`, errorCode: 'DUPLICATE_NAME' });
+      return res.status(400).json({
+        success: false,
+        message: `A product named "${name.trim()}" already exists.`,
+        errorCode: 'DUPLICATE_NAME'
+      });
     }
+
+    const generatedSku = (sku && String(sku).trim().length > 0)
+      ? String(sku).trim()
+      : `SKU-${Date.now().toString().slice(-6)}`;
 
     const product = new Product({
       userId: req.user?._id,
       name: name.trim(),
-      category: category.trim(),
+      category: finalCategory,
       costPrice: finalCostPrice,
       sellingPrice: finalSellingPrice,
       price: finalSellingPrice,
       stock: stockNum,
-      reorderLevel: reorderLevel !== undefined ? Number(reorderLevel) : 10,
-      reorderQuantity: reorderQuantity !== undefined ? Number(reorderQuantity) : 20,
-      sku: sku ? sku.trim() : undefined,
+      reorderLevel: (reorderLevel !== undefined && !isNaN(Number(reorderLevel))) ? Number(reorderLevel) : 10,
+      reorderQuantity: (reorderQuantity !== undefined && !isNaN(Number(reorderQuantity))) ? Number(reorderQuantity) : 20,
+      sku: generatedSku,
       isActive: true
     });
 

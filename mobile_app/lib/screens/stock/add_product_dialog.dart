@@ -23,9 +23,9 @@ class _AddProductDialogState extends State<AddProductDialog> {
   final ApiClient _apiClient = ApiClient();
 
   late TextEditingController _nameController;
-  late TextEditingController _categoryController;
   late TextEditingController _costPriceController;
   late TextEditingController _sellingPriceController;
+  late TextEditingController _categoryController;
   late TextEditingController _stockController;
   late TextEditingController _reorderController;
   late TextEditingController _skuController;
@@ -38,10 +38,10 @@ class _AddProductDialogState extends State<AddProductDialog> {
     super.initState();
     final p = widget.existingProduct;
     _nameController = TextEditingController(text: p?.name ?? '');
-    _categoryController = TextEditingController(text: p?.category ?? 'Grocery');
-    _costPriceController = TextEditingController(text: p != null ? p.costPrice.toStringAsFixed(0) : '50');
-    _sellingPriceController = TextEditingController(text: p != null ? p.sellingPrice.toStringAsFixed(0) : '75');
-    _stockController = TextEditingController(text: p != null ? p.stock.toString() : '20');
+    _costPriceController = TextEditingController(text: p != null ? p.costPrice.toStringAsFixed(0) : '');
+    _sellingPriceController = TextEditingController(text: p != null ? p.sellingPrice.toStringAsFixed(0) : '');
+    _categoryController = TextEditingController(text: p?.category ?? 'General');
+    _stockController = TextEditingController(text: p != null ? p.stock.toString() : '0');
     _reorderController = TextEditingController(text: p != null ? p.reorderLevel.toString() : '10');
     _skuController = TextEditingController(text: p?.sku ?? '');
   }
@@ -49,9 +49,9 @@ class _AddProductDialogState extends State<AddProductDialog> {
   @override
   void dispose() {
     _nameController.dispose();
-    _categoryController.dispose();
     _costPriceController.dispose();
     _sellingPriceController.dispose();
+    _categoryController.dispose();
     _stockController.dispose();
     _reorderController.dispose();
     _skuController.dispose();
@@ -66,14 +66,19 @@ class _AddProductDialogState extends State<AddProductDialog> {
       _errorMessage = null;
     });
 
+    final cp = double.tryParse(_costPriceController.text.trim()) ?? 0.0;
+    final sp = double.tryParse(_sellingPriceController.text.trim()) ?? 0.0;
+    final stockVal = int.tryParse(_stockController.text.trim()) ?? 0;
+    final catVal = _categoryController.text.trim().isNotEmpty ? _categoryController.text.trim() : 'General';
+
     final payload = {
       'name': _nameController.text.trim(),
-      'category': _categoryController.text.trim(),
-      'costPrice': double.tryParse(_costPriceController.text) ?? 0.0,
-      'sellingPrice': double.tryParse(_sellingPriceController.text) ?? 0.0,
-      'price': double.tryParse(_sellingPriceController.text) ?? 0.0,
-      'stock': int.tryParse(_stockController.text) ?? 0,
-      'reorderLevel': int.tryParse(_reorderController.text) ?? 10,
+      'costPrice': cp,
+      'sellingPrice': sp,
+      'price': sp,
+      'category': catVal,
+      'stock': stockVal,
+      'reorderLevel': int.tryParse(_reorderController.text.trim()) ?? 10,
       if (_skuController.text.trim().isNotEmpty) 'sku': _skuController.text.trim(),
     };
 
@@ -89,7 +94,7 @@ class _AddProductDialogState extends State<AddProductDialog> {
         Navigator.of(context).pop();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(widget.existingProduct != null ? 'Product updated' : 'Product created successfully'),
+            content: Text(widget.existingProduct != null ? 'Product updated' : 'Product "${_nameController.text.trim()}" created successfully'),
             backgroundColor: AppTheme.success,
           ),
         );
@@ -103,11 +108,7 @@ class _AddProductDialogState extends State<AddProductDialog> {
         _errorMessage = 'Failed to save product: $e';
       });
     } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -117,16 +118,11 @@ class _AddProductDialogState extends State<AddProductDialog> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text('Delete "${widget.existingProduct!.name}"?'),
-        content: const Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Are you sure you want to remove this product?'),
-            SizedBox(height: 10),
-            Text('• If past sales, purchases, or returns exist, the product will be safely deactivated to protect historical reports.'),
-            Text('• If no transaction history exists, the product record will be permanently deleted.'),
-          ],
+        title: const Text('Delete Product?'),
+        content: Text(
+          'Are you sure you want to delete "${widget.existingProduct!.name}"?\n\n'
+          '• If the product has sales or purchases history, it will be safely deactivated.\n'
+          '• If it is a clean unused product, it will be permanently deleted.',
         ),
         actions: [
           TextButton(
@@ -136,7 +132,7 @@ class _AddProductDialogState extends State<AddProductDialog> {
           ElevatedButton(
             onPressed: () => Navigator.of(ctx).pop(true),
             style: ElevatedButton.styleFrom(backgroundColor: AppTheme.error),
-            child: const Text('Delete / Deactivate'),
+            child: const Text('Delete'),
           ),
         ],
       ),
@@ -200,6 +196,28 @@ class _AddProductDialogState extends State<AddProductDialog> {
                     ),
                   ],
                 ),
+                const SizedBox(height: 12),
+
+                // Helper guidance
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primaryLight,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.flash_on, size: 16, color: AppTheme.primary),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Simple entry: Enter Product Name, CP & SP. Stock starts at 0 until restocked.',
+                          style: TextStyle(fontSize: 12, color: AppTheme.textPrimary, fontWeight: FontWeight.w500),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
                 const SizedBox(height: 16),
 
                 if (_errorMessage != null) ...[
@@ -212,34 +230,25 @@ class _AddProductDialogState extends State<AddProductDialog> {
                     ),
                     child: Text(
                       _errorMessage!,
-                      style: const TextStyle(color: AppTheme.error, fontSize: 13),
+                      style: const TextStyle(color: AppTheme.error, fontSize: 13, fontWeight: FontWeight.w600),
                     ),
                   ),
                 ],
 
-                // Product Name
+                // 1. Product Name *
                 TextFormField(
                   controller: _nameController,
                   decoration: const InputDecoration(
                     labelText: 'Product Name *',
                     hintText: 'e.g. Basmati Rice 1kg',
+                    prefixIcon: Icon(Icons.shopping_bag_outlined, size: 20),
+                    border: OutlineInputBorder(),
                   ),
-                  validator: (v) => (v == null || v.trim().isEmpty) ? 'Name is required' : null,
+                  validator: (v) => (v == null || v.trim().isEmpty) ? 'Product name is required' : null,
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 14),
 
-                // Category
-                TextFormField(
-                  controller: _categoryController,
-                  decoration: const InputDecoration(
-                    labelText: 'Category *',
-                    hintText: 'e.g. Grocery, Beverages, Snacks',
-                  ),
-                  validator: (v) => (v == null || v.trim().isEmpty) ? 'Category is required' : null,
-                ),
-                const SizedBox(height: 12),
-
-                // Cost & Selling Prices
+                // 2. Cost Price & 3. Selling Price
                 Row(
                   children: [
                     Expanded(
@@ -247,10 +256,17 @@ class _AddProductDialogState extends State<AddProductDialog> {
                         controller: _costPriceController,
                         keyboardType: const TextInputType.numberWithOptions(decimal: true),
                         decoration: const InputDecoration(
-                          labelText: 'Cost Price (₹)',
+                          labelText: 'Cost Price (CP) *',
                           prefixText: '₹ ',
+                          hintText: 'e.g. 50',
+                          border: OutlineInputBorder(),
                         ),
-                        validator: (v) => (v == null || double.tryParse(v) == null) ? 'Enter valid cost' : null,
+                        validator: (v) {
+                          if (v == null || v.trim().isEmpty) return 'Enter CP';
+                          final num = double.tryParse(v.trim());
+                          if (num == null || num < 0) return 'Invalid CP';
+                          return null;
+                        },
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -259,54 +275,91 @@ class _AddProductDialogState extends State<AddProductDialog> {
                         controller: _sellingPriceController,
                         keyboardType: const TextInputType.numberWithOptions(decimal: true),
                         decoration: const InputDecoration(
-                          labelText: 'Selling Price (₹) *',
+                          labelText: 'Selling Price (SP) *',
                           prefixText: '₹ ',
+                          hintText: 'e.g. 75',
+                          border: OutlineInputBorder(),
                         ),
-                        validator: (v) => (v == null || double.tryParse(v) == null) ? 'Enter valid price' : null,
+                        validator: (v) {
+                          if (v == null || v.trim().isEmpty) return 'Enter SP';
+                          final num = double.tryParse(v.trim());
+                          if (num == null || num < 0) return 'Invalid SP';
+                          return null;
+                        },
                       ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 12),
 
-                // Stock & Reorder Level
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextFormField(
-                        controller: _stockController,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          labelText: 'Initial Stock *',
-                          hintText: 'e.g. 25',
-                        ),
-                        validator: (v) => (v == null || int.tryParse(v) == null) ? 'Enter quantity' : null,
-                      ),
+                // Optional Advanced Details Accordion
+                Theme(
+                  data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                  child: ExpansionTile(
+                    tilePadding: EdgeInsets.zero,
+                    title: const Text(
+                      'Additional Details (Optional)',
+                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.textSecondary),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: TextFormField(
-                        controller: _reorderController,
-                        keyboardType: TextInputType.number,
+                    children: [
+                      const SizedBox(height: 6),
+                      // Category
+                      TextFormField(
+                        controller: _categoryController,
                         decoration: const InputDecoration(
-                          labelText: 'Low Stock Alert At',
-                          hintText: '10',
+                          labelText: 'Category (Optional, defaults to General)',
+                          hintText: 'e.g. Grocery, Snacks, Hardware',
+                          prefixIcon: Icon(Icons.category_outlined, size: 20),
+                          border: OutlineInputBorder(),
                         ),
                       ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
+                      const SizedBox(height: 12),
 
-                // SKU (optional)
-                TextFormField(
-                  controller: _skuController,
-                  decoration: const InputDecoration(
-                    labelText: 'SKU / Barcode (Optional)',
-                    hintText: 'e.g. SKU-98213',
+                      // Optional Initial Stock & Low Stock Alert
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextFormField(
+                              controller: _stockController,
+                              keyboardType: TextInputType.number,
+                              decoration: const InputDecoration(
+                                labelText: 'Opening Stock',
+                                hintText: '0',
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: TextFormField(
+                              controller: _reorderController,
+                              keyboardType: TextInputType.number,
+                              decoration: const InputDecoration(
+                                labelText: 'Low Stock Alert At',
+                                hintText: '10',
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+
+                      // SKU (optional)
+                      TextFormField(
+                        controller: _skuController,
+                        decoration: const InputDecoration(
+                          labelText: 'SKU / Barcode (Optional)',
+                          hintText: 'Auto-generated if left empty',
+                          prefixIcon: Icon(Icons.qr_code_outlined, size: 20),
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 16),
 
                 // Actions
                 if (isEditing) ...[

@@ -12,23 +12,14 @@ const getTenantQuery = (req, baseQuery = {}) => {
     };
   }
 
-  // Built-in store administrators ('admin', 'cashier') retain access to legacy demo data and their own data
-  if (req.user.username === 'admin' || req.user.username === 'cashier') {
-    return {
-      ...baseQuery,
-      $or: [
-        { userId: req.user._id },
-        { userId: null },
-        { userId: { $exists: false } }
-      ]
-    };
-  }
-
-  // Normal / Multi-user accounts (e.g., Google Sign-In or dedicated shopkeeper accounts):
-  // Strictly scoped to their own records. They NEVER see demo data or other tenants' data.
+  // Authenticated store users retain access to legacy demo catalog data and their own data
   return {
     ...baseQuery,
-    userId: req.user._id
+    $or: [
+      { userId: req.user._id },
+      { userId: null },
+      { userId: { $exists: false } }
+    ]
   };
 };
 
@@ -47,8 +38,18 @@ const hasTenantAccess = (doc, req) => {
     return true;
   }
 
-  // Legacy document without a userId is accessible by store administrators
-  if (!doc.userId && (req.user.username === 'admin' || req.user.username === 'cashier')) {
+  // Document belongs to the user's business profile
+  if (doc.businessId && req.user.businessId && doc.businessId.toString() === req.user.businessId.toString()) {
+    return true;
+  }
+
+  // Legacy document without a userId is accessible by all authenticated store users
+  if (!doc.userId) {
+    return true;
+  }
+
+  // Store administrators retain access to store resources
+  if (req.user.role === 'ADMIN' || req.user.username === 'admin') {
     return true;
   }
 

@@ -8,6 +8,8 @@ const protect = async (req, res, next) => {
     let token;
     if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
       token = req.headers.authorization.split(' ')[1];
+    } else if (req.headers.authorization) {
+      token = req.headers.authorization;
     } else if (req.query && req.query.token) {
       token = req.query.token;
     }
@@ -16,6 +18,7 @@ const protect = async (req, res, next) => {
       return res.status(401).json({ success: false, message: 'Authentication required. Please log in.', errorCode: 'AUTH_REQUIRED' });
     }
 
+    token = token.replace(/^["']|["']$/g, '').trim();
     const decoded = jwt.verify(token, JWT_SECRET);
     const user = await User.findById(decoded.id).select('-password');
 
@@ -48,10 +51,18 @@ const optionalProtect = async (req, res, next) => {
     let token;
     if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
       token = req.headers.authorization.split(' ')[1];
+    } else if (req.headers.authorization) {
+      token = req.headers.authorization;
+    } else if (req.query && req.query.token) {
+      token = req.query.token;
     }
     if (token) {
+      token = token.replace(/^["']|["']$/g, '').trim();
       const decoded = jwt.verify(token, JWT_SECRET);
-      req.user = await User.findById(decoded.id).select('-password');
+      const user = await User.findById(decoded.id).select('-password');
+      if (user && user.isActive !== false) {
+        req.user = user;
+      }
     }
   } catch (err) {
     // Ignore invalid token in optionalProtect

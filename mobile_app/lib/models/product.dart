@@ -26,6 +26,7 @@ class Product {
   bool get isLowStock => stock <= reorderLevel;
   bool get isOutOfStock => stock <= 0;
   String? get barcode => sku;
+  double get price => sellingPrice;
   double get profitPerUnit => sellingPrice - costPrice;
   double get marginPercent =>
       sellingPrice > 0 ? ((profitPerUnit / sellingPrice) * 100) : 0.0;

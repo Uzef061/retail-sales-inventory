@@ -53,6 +53,13 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
   bool _isSavingQuickSale = false;
   String? _quickSaleIdempotencyKey;
 
+  // Quick Sale Product-Based State
+  int _quickSaleType = 0; // 0 = Amount-Only (Fast), 1 = With Products (Deduct Stock)
+  final List<CartEntry> _quickItems = [];
+  Product? _quickSelectedProduct;
+  final TextEditingController _quickProductQtyController = TextEditingController(text: '1');
+  final TextEditingController _quickProductPriceController = TextEditingController();
+
   // POS Itemized Cart State
   List<Product> _products = [];
   List<Customer> _customers = [];
@@ -103,6 +110,8 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
     _quickNameController.dispose();
     _quickAmountController.dispose();
     _quickNotesController.dispose();
+    _quickProductQtyController.dispose();
+    _quickProductPriceController.dispose();
     _discountController.dispose();
     _taxController.dispose();
     _productSearchController.dispose();
@@ -336,8 +345,6 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
 
     final phone = _quickPhoneController.text.trim();
     final name = _quickNameController.text.trim();
-    final amountText = _quickAmountController.text.trim();
-    final amount = double.tryParse(amountText) ?? 0.0;
 
     if (phone.isEmpty && name.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -349,29 +356,92 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
       return;
     }
 
-    if (amount <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please enter a valid sale amount greater than 0.'),
-          backgroundColor: AppTheme.error,
-        ),
-      );
-      return;
+    double finalAmount = 0.0;
+    List<Map<String, dynamic>>? itemsPayload;
+
+    if (_quickSaleType == 1) {
+      // Product-based quick sale
+      // Ergonomic auto-add: if a product is selected in inputs but not yet explicitly pushed
+      if (_quickSelectedProduct != null) {
+        final qty = int.tryParse(_quickProductQtyController.text.trim()) ?? 0;
+        final price = double.tryParse(_quickProductPriceController.text.trim()) ??
+            (_quickSelectedProduct!.sellingPrice > 0 ? _quickSelectedProduct!.sellingPrice : _quickSelectedProduct!.price);
+        if (qty > 0 && price >= 0) {
+          final existingIdx = _quickItems.indexWhere((e) => e.product.id == _quickSelectedProduct!.id);
+          if (existingIdx >= 0) {
+            _quickItems[existingIdx].quantity = qty;
+            _quickItems[existingIdx].customPrice = price;
+          } else {
+            _quickItems.add(CartEntry(
+              product: _quickSelectedProduct!,
+              quantity: qty,
+              customPrice: price,
+            ));
+          }
+        }
+      }
+
+      if (_quickItems.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please select at least one product, or switch to Quick Amount mode.'),
+            backgroundColor: AppTheme.error,
+          ),
+        );
+        return;
+      }
+
+      // Check stock
+      for (final item in _quickItems) {
+        if (item.quantity > item.product.stock) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Insufficient stock for "${item.product.name}". Available: ${item.product.stock}, requested: ${item.quantity}'),
+              backgroundColor: AppTheme.error,
+            ),
+          );
+          return;
+        }
+      }
+
+      finalAmount = _quickItems.fold<double>(0.0, (sum, i) => sum + i.lineTotal);
+
+      itemsPayload = _quickItems.map((entry) => {
+        'product': entry.product.id,
+        'quantity': entry.quantity,
+        'sellingPrice': entry.customPrice,
+        'costPrice': entry.product.costPrice,
+      }).toList();
+    } else {
+      // Amount-only quick sale
+      final amountText = _quickAmountController.text.trim();
+      finalAmount = double.tryParse(amountText) ?? 0.0;
+      if (finalAmount <= 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please enter a valid sale amount greater than 0.'),
+            backgroundColor: AppTheme.error,
+          ),
+        );
+        return;
+      }
+      itemsPayload = null;
     }
 
     setState(() => _isSavingQuickSale = true);
 
     try {
       final effectivePaymentMethod = _quickPaymentMethod == 'CREDIT' ? 'OTHER' : _quickPaymentMethod;
-      final amountReceived = _quickPaymentMethod == 'CREDIT' ? 0.0 : amount;
+      final amountReceived = _quickPaymentMethod == 'CREDIT' ? 0.0 : finalAmount;
 
       final createdSale = await _salesService.createSale(
         customerId: _matchedCustomer?.id,
         customerName: name.isNotEmpty ? name : 'Customer',
         customerPhone: phone,
-        amount: amount,
+        amount: finalAmount,
         amountReceived: amountReceived,
         paymentMethod: effectivePaymentMethod,
+        items: itemsPayload,
         notes: _quickNotesController.text.trim(),
         idempotencyKey: _quickSaleIdempotencyKey,
       );
@@ -382,6 +452,10 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
         _quickNameController.clear();
         _quickAmountController.clear();
         _quickNotesController.clear();
+        _quickProductQtyController.text = '1';
+        _quickProductPriceController.clear();
+        _quickSelectedProduct = null;
+        _quickItems.clear();
         _matchedCustomer = null;
         _quickPaymentMethod = 'CASH';
         _initQuickSaleIdempotency();
@@ -855,49 +929,323 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
           ),
           const SizedBox(height: 12),
 
-          // Field 3: Sale Amount
+          // Field 3: Quick Sale Mode & Products / Amount
           Card(
             child: Padding(
               padding: const EdgeInsets.all(14),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    '3. Sale Amount (₹) *',
-                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: AppTheme.textPrimary),
-                  ),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: _quickAmountController,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: AppTheme.primary),
-                    decoration: InputDecoration(
-                      prefixText: '₹ ',
-                      prefixStyle: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: AppTheme.primary),
-                      hintText: '0',
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                    ),
-                    onChanged: (_) => setState(() {}),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        '3. Quick Sale Mode *',
+                        style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: AppTheme.textPrimary),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: _quickSaleType == 1 ? AppTheme.primaryLight : Colors.blueGrey.shade50,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          _quickSaleType == 1 ? 'Deducts Stock' : 'Amount Only (No Stock)',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            color: _quickSaleType == 1 ? AppTheme.primary : AppTheme.textSecondary,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 10),
-
-                  // Quick chips
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 6,
-                    children: [100, 200, 500, 1000, 2000, 5000].map((quickVal) {
-                      return ActionChip(
-                        label: Text('+₹$quickVal', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
-                        onPressed: () {
-                          final current = double.tryParse(_quickAmountController.text.trim()) ?? 0.0;
-                          final newVal = current + quickVal;
-                          _quickAmountController.text = newVal.toStringAsFixed(0);
-                          setState(() {});
-                        },
-                      );
-                    }).toList(),
+                  SizedBox(
+                    width: double.infinity,
+                    child: SegmentedButton<int>(
+                      segments: const [
+                        ButtonSegment<int>(
+                          value: 0,
+                          label: Text('⚡ Quick Amount', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                          icon: Icon(Icons.flash_on, size: 16),
+                        ),
+                        ButtonSegment<int>(
+                          value: 1,
+                          label: Text('📦 Select Products', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                          icon: Icon(Icons.inventory_2_outlined, size: 16),
+                        ),
+                      ],
+                      selected: {_quickSaleType},
+                      onSelectionChanged: (val) {
+                        setState(() => _quickSaleType = val.first);
+                      },
+                    ),
                   ),
+                  const SizedBox(height: 14),
+
+                  if (_quickSaleType == 0) ...[
+                    // Amount-Only Rapid Sale Mode
+                    const Text(
+                      'Enter Sale Amount (₹) *',
+                      style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12, color: AppTheme.textSecondary),
+                    ),
+                    const SizedBox(height: 6),
+                    TextField(
+                      controller: _quickAmountController,
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: AppTheme.primary),
+                      decoration: InputDecoration(
+                        prefixText: '₹ ',
+                        prefixStyle: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: AppTheme.primary),
+                        hintText: '0',
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      ),
+                      onChanged: (_) => setState(() {}),
+                    ),
+                    const SizedBox(height: 10),
+
+                    // Quick chips
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 6,
+                      children: [100, 200, 500, 1000, 2000, 5000].map((quickVal) {
+                        return ActionChip(
+                          label: Text('+₹$quickVal', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+                          onPressed: () {
+                            final current = double.tryParse(_quickAmountController.text.trim()) ?? 0.0;
+                            final newVal = current + quickVal;
+                            _quickAmountController.text = newVal.toStringAsFixed(0);
+                            setState(() {});
+                          },
+                        );
+                      }).toList(),
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      'Financial transaction will be recorded without altering product inventory.',
+                      style: TextStyle(fontSize: 11, color: AppTheme.textMuted),
+                    ),
+                  ] else ...[
+                    // Product-Based Quick Sale Mode
+                    const Text(
+                      'Select Product Item *',
+                      style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12, color: AppTheme.textSecondary),
+                    ),
+                    const SizedBox(height: 6),
+                    InkWell(
+                      onTap: _showQuickProductPickerModal,
+                      borderRadius: BorderRadius.circular(10),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey.shade300),
+                          borderRadius: BorderRadius.circular(10),
+                          color: Colors.grey.shade50,
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.search, size: 20, color: AppTheme.textMuted),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                _quickSelectedProduct != null
+                                    ? '${_quickSelectedProduct!.name} (Stock: ${_quickSelectedProduct!.stock})'
+                                    : 'Tap to search & select product...',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: _quickSelectedProduct != null ? AppTheme.textPrimary : AppTheme.textMuted,
+                                  fontWeight: _quickSelectedProduct != null ? FontWeight.w600 : FontWeight.normal,
+                                ),
+                              ),
+                            ),
+                            const Icon(Icons.arrow_drop_down, color: AppTheme.textMuted),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    if (_quickSelectedProduct != null) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: AppTheme.surface,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: Colors.grey.shade200),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    _quickSelectedProduct!.name,
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                  ),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: _quickSelectedProduct!.stock > 0 ? AppTheme.primaryLight : AppTheme.errorLight,
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    'Stock: ${_quickSelectedProduct!.stock}',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                      color: _quickSelectedProduct!.stock > 0 ? AppTheme.primary : AppTheme.error,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            Row(
+                              children: [
+                                // Quantity Field
+                                Expanded(
+                                  flex: 2,
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text('Qty Sold', style: TextStyle(fontSize: 11, color: AppTheme.textSecondary, fontWeight: FontWeight.w600)),
+                                      const SizedBox(height: 4),
+                                      TextField(
+                                        controller: _quickProductQtyController,
+                                        keyboardType: TextInputType.number,
+                                        decoration: InputDecoration(
+                                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                        ),
+                                        onChanged: (_) => setState(() {}),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                // Negotiated / Custom Selling Price
+                                Expanded(
+                                  flex: 3,
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'Price (₹) [Suggested: ₹${_quickSelectedProduct!.sellingPrice.toStringAsFixed(0)}]',
+                                        style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary, fontWeight: FontWeight.w600),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      TextField(
+                                        controller: _quickProductPriceController,
+                                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                        decoration: InputDecoration(
+                                          prefixText: '₹ ',
+                                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                        ),
+                                        onChanged: (_) => setState(() {}),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  'Line Total: ₹${((int.tryParse(_quickProductQtyController.text.trim()) ?? 0) * (double.tryParse(_quickProductPriceController.text.trim()) ?? _quickSelectedProduct!.sellingPrice)).toStringAsFixed(0)}',
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppTheme.primary),
+                                ),
+                                ElevatedButton.icon(
+                                  onPressed: () {
+                                    final q = int.tryParse(_quickProductQtyController.text.trim()) ?? 1;
+                                    final p = double.tryParse(_quickProductPriceController.text.trim()) ?? _quickSelectedProduct!.sellingPrice;
+                                    if (q <= 0) return;
+                                    setState(() {
+                                      final existingIdx = _quickItems.indexWhere((e) => e.product.id == _quickSelectedProduct!.id);
+                                      if (existingIdx >= 0) {
+                                        _quickItems[existingIdx].quantity += q;
+                                        _quickItems[existingIdx].customPrice = p;
+                                      } else {
+                                        _quickItems.add(CartEntry(
+                                          product: _quickSelectedProduct!,
+                                          quantity: q,
+                                          customPrice: p,
+                                        ));
+                                      }
+                                      _quickSelectedProduct = null;
+                                      _quickProductQtyController.text = '1';
+                                      _quickProductPriceController.clear();
+                                    });
+                                  },
+                                  icon: const Icon(Icons.add, size: 16),
+                                  label: const Text('Add to Sale', style: TextStyle(fontSize: 12)),
+                                  style: ElevatedButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+
+                    if (_quickItems.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      const Divider(height: 1),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Items in this Quick Sale:',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppTheme.textPrimary),
+                      ),
+                      const SizedBox(height: 6),
+                      ..._quickItems.map((entry) {
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 6),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.grey.shade200),
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(entry.product.name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                                    Text(
+                                      '${entry.quantity} x ₹${entry.customPrice.toStringAsFixed(0)} (Stock: ${entry.product.stock})',
+                                      style: const TextStyle(fontSize: 11, color: AppTheme.textMuted),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Text(
+                                '₹${entry.lineTotal.toStringAsFixed(0)}',
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppTheme.textPrimary),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.delete_outline, size: 18, color: AppTheme.error),
+                                onPressed: () {
+                                  setState(() => _quickItems.remove(entry));
+                                },
+                              ),
+                            ],
+                          ),
+                        );
+                      }),
+                    ],
+                  ],
                 ],
               ),
             ),
@@ -983,25 +1331,159 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
           const SizedBox(height: 24),
 
           // Double-Tap Guard Complete Button
-          ElevatedButton.icon(
-            onPressed: _isSavingQuickSale ? null : _handleQuickSaleSave,
-            icon: _isSavingQuickSale
-                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                : const Icon(Icons.check_circle_outline, size: 20),
-            label: Text(
-              _isSavingQuickSale
-                  ? 'Saving Sale...'
-                  : 'Complete Sale • ₹${(double.tryParse(_quickAmountController.text.trim()) ?? 0.0).toStringAsFixed(0)}',
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
-            ),
-            style: ElevatedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            ),
+          Builder(
+            builder: (ctx) {
+              final double calculatedQuickTotal;
+              if (_quickSaleType == 1) {
+                final itemsSum = _quickItems.fold<double>(0.0, (sum, i) => sum + i.lineTotal);
+                if (_quickSelectedProduct != null && _quickItems.isEmpty) {
+                  final pendingQty = int.tryParse(_quickProductQtyController.text.trim()) ?? 0;
+                  final pendingPrice = double.tryParse(_quickProductPriceController.text.trim()) ?? _quickSelectedProduct!.sellingPrice;
+                  calculatedQuickTotal = itemsSum + (pendingQty * pendingPrice);
+                } else {
+                  calculatedQuickTotal = itemsSum;
+                }
+              } else {
+                calculatedQuickTotal = double.tryParse(_quickAmountController.text.trim()) ?? 0.0;
+              }
+
+              return ElevatedButton.icon(
+                onPressed: _isSavingQuickSale ? null : _handleQuickSaleSave,
+                icon: _isSavingQuickSale
+                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : const Icon(Icons.check_circle_outline, size: 20),
+                label: Text(
+                  _isSavingQuickSale
+                      ? 'Saving Sale...'
+                      : 'Complete Sale • ₹${calculatedQuickTotal.toStringAsFixed(0)}',
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+                ),
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              );
+            },
           ),
           const SizedBox(height: 40),
         ],
       ),
+    );
+  }
+
+  void _showQuickProductPickerModal() {
+    final searchCtrl = TextEditingController();
+    List<Product> filtered = List.from(_products);
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (modalCtx, setModalState) {
+            return Container(
+              padding: const EdgeInsets.all(16),
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height * 0.75,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Select Product for Quick Sale',
+                        style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.of(ctx).pop(),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: searchCtrl,
+                    autofocus: true,
+                    decoration: InputDecoration(
+                      hintText: 'Search products by name, SKU or category...',
+                      prefixIcon: const Icon(Icons.search),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    ),
+                    onChanged: (q) {
+                      final clean = q.toLowerCase().trim();
+                      setModalState(() {
+                        filtered = _products.where((p) {
+                          return p.name.toLowerCase().contains(clean) ||
+                              (p.sku?.toLowerCase().contains(clean) ?? false) ||
+                              p.category.toLowerCase().contains(clean);
+                        }).toList();
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: filtered.isEmpty
+                        ? const Center(
+                            child: Text('No matching products found.', style: TextStyle(color: AppTheme.textSecondary)),
+                          )
+                        : ListView.separated(
+                            itemCount: filtered.length,
+                            separatorBuilder: (_, _) => const Divider(height: 1),
+                            itemBuilder: (_, idx) {
+                              final p = filtered[idx];
+                              final isOutOfStock = p.stock <= 0;
+                              return ListTile(
+                                leading: CircleAvatar(
+                                  backgroundColor: isOutOfStock ? Colors.grey.shade200 : AppTheme.primaryLight,
+                                  child: Icon(
+                                    Icons.inventory_2_outlined,
+                                    size: 18,
+                                    color: isOutOfStock ? Colors.grey : AppTheme.primary,
+                                  ),
+                                ),
+                                title: Text(p.name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                                subtitle: Text(
+                                  'Price: ₹${p.sellingPrice.toStringAsFixed(0)} • Stock: ${p.stock}',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: isOutOfStock ? AppTheme.error : AppTheme.textSecondary,
+                                  ),
+                                ),
+                                trailing: isOutOfStock
+                                    ? Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: AppTheme.errorLight,
+                                          borderRadius: BorderRadius.circular(4),
+                                        ),
+                                        child: const Text('OUT OF STOCK', style: TextStyle(fontSize: 10, color: AppTheme.error, fontWeight: FontWeight.bold)),
+                                      )
+                                    : Text(
+                                        '₹${p.sellingPrice.toStringAsFixed(0)}',
+                                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppTheme.primary),
+                                      ),
+                                onTap: () {
+                                  Navigator.of(ctx).pop();
+                                  setState(() {
+                                    _quickSelectedProduct = p;
+                                    _quickProductPriceController.text = (p.sellingPrice > 0 ? p.sellingPrice : p.price).toStringAsFixed(0);
+                                    _quickProductQtyController.text = '1';
+                                  });
+                                },
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
     );
   }
 

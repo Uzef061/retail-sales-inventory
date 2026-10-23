@@ -4,7 +4,7 @@ const productSchema = new mongoose.Schema(
   {
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
     name: { type: String, required: true, trim: true },
-    category: { type: String, required: true, trim: true },
+    category: { type: String, trim: true, default: 'General' },
     costPrice: { type: Number, required: true, min: 0, default: 0 },
     sellingPrice: { type: Number, required: true, min: 0, default: 0 },
     // Backwards compatibility property 'price' mapped to sellingPrice
