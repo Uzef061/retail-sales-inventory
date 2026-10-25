@@ -11,8 +11,8 @@ class CurrencyHelper {
   static const Map<String, Map<String, String>> _currencyMap = {
     'NPR': {'name': 'Nepalese Rupee', 'symbol': 'रू'},
     'INR': {'name': 'Indian Rupee', 'symbol': '₹'},
-    'PKR': {'name': 'Pakistani Rupee', 'symbol': 'Rs.'},
-    'USD': {'name': 'US Dollar', 'symbol': '\$'},
+    'PKR': {'name': 'Pakistani Rupee', 'symbol': 'Rs'},
+    'USD': {'name': 'US Dollar', 'symbol': r'$'},
     'EUR': {'name': 'Euro', 'symbol': '€'},
     'GBP': {'name': 'British Pound', 'symbol': '£'},
     'AED': {'name': 'UAE Dirham', 'symbol': 'AED'},
@@ -35,30 +35,55 @@ class CurrencyHelper {
   static void setCurrency(String? codeOrSymbol, {bool persist = true}) {
     if (codeOrSymbol == null || codeOrSymbol.trim().isEmpty) return;
     final clean = codeOrSymbol.trim();
+    final upper = clean.toUpperCase();
 
     // Check direct code match (e.g. NPR, USD, INR)
-    final upper = clean.toUpperCase();
     if (_currencyMap.containsKey(upper)) {
       _activeCode = upper;
       _activeSymbol = _currencyMap[upper]!['symbol']!;
-    } else if (clean == 'रू' || clean == 'NRs') {
+    } else if (clean == 'रू' ||
+        clean == 'NRs' ||
+        clean == 'NRs.' ||
+        upper.contains('NPR') ||
+        upper.contains('NEPAL') ||
+        clean.contains('रू')) {
       _activeCode = 'NPR';
       _activeSymbol = 'रू';
-    } else if (clean == '₹') {
+    } else if (clean == '₹' ||
+        upper.contains('INR') ||
+        upper.contains('INDIA') ||
+        clean.contains('₹')) {
       _activeCode = 'INR';
       _activeSymbol = '₹';
-    } else if (clean == 'Rs' || clean == 'Rs.' || clean == '₨') {
+    } else if (clean == 'Rs' ||
+        clean == 'Rs.' ||
+        clean == '₨' ||
+        upper.contains('PKR') ||
+        upper.contains('PAKISTAN') ||
+        clean.contains('₨')) {
       _activeCode = 'PKR';
-      _activeSymbol = 'Rs.';
-    } else if (clean == '\$') {
+      _activeSymbol = 'Rs';
+    } else if (clean == r'$' ||
+        upper.contains('USD') ||
+        upper.contains('DOLLAR')) {
       _activeCode = 'USD';
-      _activeSymbol = '\$';
-    } else if (clean == '€') {
+      _activeSymbol = r'$';
+    } else if (clean == '€' ||
+        upper.contains('EUR') ||
+        upper.contains('EURO')) {
       _activeCode = 'EUR';
       _activeSymbol = '€';
-    } else if (clean == '£') {
+    } else if (clean == '£' ||
+        upper.contains('GBP') ||
+        upper.contains('POUND')) {
       _activeCode = 'GBP';
       _activeSymbol = '£';
+    } else if (upper.contains('AED') || upper.contains('DIRHAM')) {
+      _activeCode = 'AED';
+      _activeSymbol = 'AED';
+    } else if (upper.contains('SAR') || upper.contains('RIYAL')) {
+      _activeCode = 'SAR';
+      _activeSymbol = 'SAR';
     } else {
       _activeCode = upper;
       _activeSymbol = clean;

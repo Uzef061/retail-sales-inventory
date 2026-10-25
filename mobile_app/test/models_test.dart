@@ -1,4 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mobile_app/core/utils/currency_helper.dart';
+import 'package:mobile_app/models/business_profile.dart';
 import 'package:mobile_app/models/customer.dart';
 import 'package:mobile_app/models/dashboard_data.dart';
 import 'package:mobile_app/models/product.dart';
@@ -276,6 +278,54 @@ void main() {
       expect(pl.netProfit, 30000.0);
       expect(pl.profitMargin, closeTo(35.29, 0.01));
       expect(pl.totalSalesCount, 42);
+    });
+  });
+
+  group('BusinessProfile & NPR Currency Tests', () {
+    test('parses BusinessProfile with NPR currency and enriched fields', () {
+      final json = {
+        '_id': 'bp_npr_1',
+        'userId': 'u_npr_1',
+        'businessName': 'Kathmandu Mart',
+        'ownerName': 'Sita Thapa',
+        'currency': 'NPR',
+        'currencyCode': 'NPR',
+        'currencySymbol': 'रू',
+        'currencyName': 'Nepalese Rupee',
+      };
+      final profile = BusinessProfile.fromJson(json);
+      expect(profile.businessName, 'Kathmandu Mart');
+      expect(profile.currency, 'NPR');
+      expect(profile.currencyCode, 'NPR');
+      expect(profile.currencySymbol, 'रू');
+      expect(profile.currencyName, 'Nepalese Rupee');
+
+      final map = profile.toJson();
+      expect(map['currency'], 'NPR');
+      expect(map['currencyCode'], 'NPR');
+      expect(map['currencySymbol'], 'रू');
+    });
+
+    test('CurrencyHelper correctly recognizes NPR and formats amounts with रू', () {
+      // Test code
+      CurrencyHelper.setCurrency('NPR', persist: false);
+      expect(CurrencyHelper.code, 'NPR');
+      expect(CurrencyHelper.symbol, 'रू');
+
+      // Test symbol alias
+      CurrencyHelper.setCurrency('रू', persist: false);
+      expect(CurrencyHelper.code, 'NPR');
+      expect(CurrencyHelper.symbol, 'रू');
+
+      // Test exact label string: Nepalese Rupee (NPR — रू)
+      CurrencyHelper.setCurrency('Nepalese Rupee (NPR — रू)', persist: false);
+      expect(CurrencyHelper.code, 'NPR');
+      expect(CurrencyHelper.symbol, 'रू');
+
+      // Test formatted string contains रू
+      final formatted = CurrencyHelper.format(1250);
+      expect(formatted.contains('रू'), isTrue);
+      expect(formatted.contains('1,250'), isTrue);
     });
   });
 }

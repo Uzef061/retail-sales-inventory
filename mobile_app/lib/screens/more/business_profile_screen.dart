@@ -23,7 +23,7 @@ class _BusinessProfileScreenState extends State<BusinessProfileScreen> {
   final _ownerNameController = TextEditingController();
   final _categoryController = TextEditingController();
   final _phoneController = TextEditingController();
-  final _currencyController = TextEditingController(text: 'PKR');
+  final _currencyController = TextEditingController(text: CurrencyHelper.code);
   final _taxNumberController = TextEditingController();
   final _receiptHeaderController = TextEditingController();
   final _receiptFooterController = TextEditingController();
@@ -40,25 +40,32 @@ class _BusinessProfileScreenState extends State<BusinessProfileScreen> {
   ];
 
   final List<Map<String, String>> _currencies = [
-    {'code': 'PKR', 'label': 'PKR - Pakistani Rupee (Rs)'},
-    {'code': 'NPR', 'label': 'NPR - Nepalese Rupee (रू)'},
-    {'code': 'INR', 'label': 'INR - Indian Rupee (₹)'},
-    {'code': 'USD', 'label': 'USD - US Dollar (\$)'},
-    {'code': 'EUR', 'label': 'EUR - Euro (€)'},
-    {'code': 'GBP', 'label': 'GBP - British Pound (£)'},
-    {'code': 'AED', 'label': 'AED - UAE Dirham (AED)'},
-    {'code': 'SAR', 'label': 'SAR - Saudi Riyal (SAR)'},
+    {'code': 'NPR', 'label': 'Nepalese Rupee (NPR — रू)', 'name': 'Nepalese Rupee', 'symbol': 'रू'},
+    {'code': 'INR', 'label': 'Indian Rupee (INR — ₹)', 'name': 'Indian Rupee', 'symbol': '₹'},
+    {'code': 'PKR', 'label': 'Pakistani Rupee (PKR — Rs)', 'name': 'Pakistani Rupee', 'symbol': 'Rs'},
+    {'code': 'USD', 'label': 'US Dollar (USD — \$)', 'name': 'US Dollar', 'symbol': '\$'},
+    {'code': 'EUR', 'label': 'Euro (EUR — €)', 'name': 'Euro', 'symbol': '€'},
+    {'code': 'GBP', 'label': 'British Pound (GBP — £)', 'name': 'British Pound', 'symbol': '£'},
+    {'code': 'AED', 'label': 'UAE Dirham (AED)', 'name': 'UAE Dirham', 'symbol': 'AED'},
+    {'code': 'SAR', 'label': 'Saudi Riyal (SAR)', 'name': 'Saudi Riyal', 'symbol': 'SAR'},
   ];
 
   String get _selectedCurrencyCode {
     final cur = _currencyController.text.trim();
     if (_currencies.any((c) => c['code'] == cur)) return cur;
-    if (cur == 'रू' || cur == 'NRs') return 'NPR';
-    if (cur == '₹') return 'INR';
-    if (cur == '₨' || cur == 'Rs' || cur == 'Rs.') return 'PKR';
-    if (cur == '\$') return 'USD';
-    if (cur == '€') return 'EUR';
-    if (cur == '£') return 'GBP';
+    if (_currencies.any((c) => c['label'] == cur)) {
+      return _currencies.firstWhere((c) => c['label'] == cur)['code']!;
+    }
+    final upper = cur.toUpperCase();
+    if (_currencies.any((c) => c['code'] == upper)) return upper;
+    if (cur == 'रू' || cur == 'NRs' || upper.contains('NPR') || upper.contains('NEPAL') || cur.contains('रू')) return 'NPR';
+    if (cur == '₹' || upper.contains('INR') || upper.contains('INDIA') || cur.contains('₹')) return 'INR';
+    if (cur == '₨' || cur == 'Rs' || cur == 'Rs.' || upper.contains('PKR') || upper.contains('PAKISTAN')) return 'PKR';
+    if (cur == '\$' || upper.contains('USD') || upper.contains('DOLLAR')) return 'USD';
+    if (cur == '€' || upper.contains('EUR') || upper.contains('EURO')) return 'EUR';
+    if (cur == '£' || upper.contains('GBP') || upper.contains('POUND')) return 'GBP';
+    if (upper.contains('AED') || upper.contains('DIRHAM')) return 'AED';
+    if (upper.contains('SAR') || upper.contains('RIYAL')) return 'SAR';
     return 'INR';
   }
 
@@ -106,8 +113,11 @@ class _BusinessProfileScreenState extends State<BusinessProfileScreen> {
     _ownerNameController.text = profile.ownerName;
     _categoryController.text = profile.category;
     _phoneController.text = profile.phone;
-    _currencyController.text = profile.currency.isNotEmpty ? profile.currency : 'INR';
-    CurrencyHelper.setCurrency(profile.currency);
+    final curr = profile.currencyCode.isNotEmpty
+        ? profile.currencyCode
+        : (profile.currency.isNotEmpty ? profile.currency : 'INR');
+    _currencyController.text = curr;
+    CurrencyHelper.setCurrency(curr);
     _taxNumberController.text = profile.taxNumber;
     _receiptHeaderController.text = profile.receiptHeader;
     _receiptFooterController.text = profile.receiptFooter.isNotEmpty
@@ -126,13 +136,14 @@ class _BusinessProfileScreenState extends State<BusinessProfileScreen> {
         ownerName: _ownerNameController.text.trim(),
         category: _categoryController.text.trim(),
         phone: _phoneController.text.trim(),
-        currency: _currencyController.text.trim(),
+        currency: _selectedCurrencyCode,
         taxNumber: _taxNumberController.text.trim(),
         receiptHeader: _receiptHeaderController.text.trim(),
         receiptFooter: _receiptFooterController.text.trim(),
       );
 
       _populateFields(updated);
+      CurrencyHelper.setCurrency(_selectedCurrencyCode);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

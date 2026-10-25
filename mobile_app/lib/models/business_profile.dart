@@ -8,6 +8,9 @@ class BusinessProfile {
   final String email;
   final String address;
   final String currency;
+  final String currencyCode;
+  final String currencySymbol;
+  final String currencyName;
   final String taxNumber;
   final String logoUrl;
   final String receiptHeader;
@@ -22,7 +25,10 @@ class BusinessProfile {
     this.phone = '',
     this.email = '',
     this.address = '',
-    this.currency = 'PKR',
+    this.currency = 'INR',
+    this.currencyCode = 'INR',
+    this.currencySymbol = '₹',
+    this.currencyName = 'Indian Rupee',
     this.taxNumber = '',
     this.logoUrl = '',
     this.receiptHeader = '',
@@ -30,6 +36,11 @@ class BusinessProfile {
   });
 
   factory BusinessProfile.fromJson(Map<String, dynamic> json) {
+    final rawCurrency = json['currency']?.toString() ?? 'INR';
+    final code = json['currencyCode']?.toString() ?? (rawCurrency.isNotEmpty ? rawCurrency : 'INR');
+    final symbol = json['currencySymbol']?.toString() ?? '';
+    final name = json['currencyName']?.toString() ?? '';
+
     return BusinessProfile(
       id: json['_id']?.toString() ?? json['id']?.toString() ?? '',
       userId: json['userId']?.toString() ?? '',
@@ -39,7 +50,10 @@ class BusinessProfile {
       phone: json['phone']?.toString() ?? '',
       email: json['email']?.toString() ?? '',
       address: json['address']?.toString() ?? '',
-      currency: json['currency']?.toString() ?? 'PKR',
+      currency: rawCurrency,
+      currencyCode: code,
+      currencySymbol: symbol,
+      currencyName: name,
       taxNumber: json['taxNumber']?.toString() ?? '',
       logoUrl: json['logoUrl']?.toString() ?? '',
       receiptHeader: json['receiptHeader']?.toString() ?? '',
@@ -56,6 +70,9 @@ class BusinessProfile {
       'email': email,
       'address': address,
       'currency': currency,
+      'currencyCode': currencyCode,
+      'currencySymbol': currencySymbol,
+      'currencyName': currencyName,
       'taxNumber': taxNumber,
       'logoUrl': logoUrl,
       'receiptHeader': receiptHeader,
@@ -71,6 +88,9 @@ class BusinessProfile {
     String? email,
     String? address,
     String? currency,
+    String? currencyCode,
+    String? currencySymbol,
+    String? currencyName,
     String? taxNumber,
     String? logoUrl,
     String? receiptHeader,
@@ -86,6 +106,9 @@ class BusinessProfile {
       email: email ?? this.email,
       address: address ?? this.address,
       currency: currency ?? this.currency,
+      currencyCode: currencyCode ?? this.currencyCode,
+      currencySymbol: currencySymbol ?? this.currencySymbol,
+      currencyName: currencyName ?? this.currencyName,
       taxNumber: taxNumber ?? this.taxNumber,
       logoUrl: logoUrl ?? this.logoUrl,
       receiptHeader: receiptHeader ?? this.receiptHeader,

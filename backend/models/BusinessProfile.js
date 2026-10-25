@@ -43,7 +43,7 @@ const businessProfileSchema = new mongoose.Schema(
     currency: {
       type: String,
       trim: true,
-      default: '₹'
+      default: 'INR'
     },
     taxNumber: {
       type: String,

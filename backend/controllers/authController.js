@@ -3,6 +3,7 @@ const BusinessProfile = require('../models/BusinessProfile');
 const jwt = require('jsonwebtoken');
 const { OAuth2Client } = require('google-auth-library');
 const { getJwtSecret } = require('../middleware/authMiddleware');
+const { getCurrencyByCodeOrSymbol } = require('../utils/currencyHelper');
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
@@ -37,14 +38,22 @@ exports.login = async (req, res) => {
     const token = generateToken(user._id);
 
     // Ensure business profile exists
-    let profile = await BusinessProfile.findOne({ userId: user._id });
+    let profile = null;
+    if (user.businessId) {
+      profile = await BusinessProfile.findById(user.businessId);
+    }
+    if (!profile) {
+      profile = await BusinessProfile.findOne({ userId: user._id });
+    }
     if (!profile) {
       profile = await BusinessProfile.create({
         userId: user._id,
         businessName: user.name ? `${user.name}'s Store` : 'My Store',
         ownerName: user.name || '',
-        currency: '₹'
+        currency: 'INR'
       });
+      user.businessId = profile._id;
+      await user.save();
     }
 
     res.status(200).json({
@@ -193,15 +202,23 @@ exports.googleLogin = async (req, res) => {
     }
 
     // Ensure business profile exists for this tenant
-    let profile = await BusinessProfile.findOne({ userId: user._id });
+    let profile = null;
+    if (user.businessId) {
+      profile = await BusinessProfile.findById(user.businessId);
+    }
+    if (!profile) {
+      profile = await BusinessProfile.findOne({ userId: user._id });
+    }
     if (!profile) {
       profile = await BusinessProfile.create({
         userId: user._id,
         businessName: name ? `${name}'s Store` : 'My Store',
         ownerName: name || '',
         email: email || '',
-        currency: '₹'
+        currency: 'INR'
       });
+      user.businessId = profile._id;
+      await user.save();
     }
 
     const sessionToken = generateToken(user._id);
@@ -244,7 +261,13 @@ exports.completeOnboarding = async (req, res) => {
     req.user.hasCompletedOnboarding = true;
     await req.user.save();
 
-    let profile = await BusinessProfile.findOne({ userId: req.user._id });
+    let profile = null;
+    if (req.user.businessId) {
+      profile = await BusinessProfile.findById(req.user.businessId);
+    }
+    if (!profile) {
+      profile = await BusinessProfile.findOne({ userId: req.user._id });
+    }
     if (!profile) {
       profile = new BusinessProfile({ userId: req.user._id });
     }
@@ -252,16 +275,31 @@ exports.completeOnboarding = async (req, res) => {
     if (businessName && businessName.trim()) profile.businessName = businessName.trim();
     if (category && category.trim()) profile.category = category.trim();
     if (phone && phone.trim()) profile.phone = phone.trim();
-    if (currency && currency.trim()) profile.currency = currency.trim();
+    if (currency && currency.trim()) {
+      const curObj = getCurrencyByCodeOrSymbol(currency.trim());
+      profile.currency = curObj.code;
+    }
     if (ownerName && ownerName.trim()) profile.ownerName = ownerName.trim();
 
     await profile.save();
+
+    if (!req.user.businessId) {
+      req.user.businessId = profile._id;
+      await req.user.save();
+    }
+
+    const curObj = getCurrencyByCodeOrSymbol(profile.currency || 'INR');
+    const profileJson = profile.toObject();
+    profileJson.currency = curObj.code;
+    profileJson.currencyCode = curObj.code;
+    profileJson.currencySymbol = curObj.symbol;
+    profileJson.currencyName = curObj.name;
 
     res.status(200).json({
       success: true,
       message: 'Onboarding completed successfully',
       hasCompletedOnboarding: true,
-      profile
+      profile: profileJson
     });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Error updating onboarding state', error: error.message });
@@ -275,7 +313,23 @@ exports.getMe = async (req, res) => {
       return res.status(401).json({ success: false, message: 'Not authenticated.' });
     }
 
-    let profile = await BusinessProfile.findOne({ userId: req.user._id });
+    let profile = null;
+    if (req.user.businessId) {
+      profile = await BusinessProfile.findById(req.user.businessId);
+    }
+    if (!profile) {
+      profile = await BusinessProfile.findOne({ userId: req.user._id });
+    }
+
+    let profileJson = null;
+    if (profile) {
+      const curObj = getCurrencyByCodeOrSymbol(profile.currency || 'INR');
+      profileJson = profile.toObject();
+      profileJson.currency = curObj.code;
+      profileJson.currencyCode = curObj.code;
+      profileJson.currencySymbol = curObj.symbol;
+      profileJson.currencyName = curObj.name;
+    }
 
     res.status(200).json({
       success: true,
@@ -289,7 +343,7 @@ exports.getMe = async (req, res) => {
         hasCompletedOnboarding: Boolean(req.user.hasCompletedOnboarding),
         businessId: profile ? profile._id : null
       },
-      profile
+      profile: profileJson
     });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Error fetching profile', error: error.message });
