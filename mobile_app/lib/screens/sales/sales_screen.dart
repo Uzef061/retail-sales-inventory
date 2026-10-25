@@ -824,6 +824,7 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
                     ),
                     const SizedBox(height: 6),
                     InkWell(
+                      key: const Key('quick_product_picker_button'),
                       onTap: _showQuickProductPickerModal,
                       borderRadius: BorderRadius.circular(10),
                       child: Container(
@@ -1194,30 +1195,78 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
                   ),
                   const SizedBox(height: 8),
                   TextField(
+                    key: const Key('quick_product_search_input'),
                     controller: searchCtrl,
                     autofocus: true,
                     decoration: InputDecoration(
                       hintText: 'Search products by name, SKU or category...',
                       prefixIcon: const Icon(Icons.search),
+                      suffixIcon: searchCtrl.text.isNotEmpty
+                          ? IconButton(
+                              icon: const Icon(Icons.clear, size: 18),
+                              onPressed: () {
+                                searchCtrl.clear();
+                                setModalState(() {
+                                  filtered = _products;
+                                });
+                              },
+                            )
+                          : null,
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                     ),
                     onChanged: (q) {
                       final clean = q.toLowerCase().trim();
                       setModalState(() {
-                        filtered = _products.where((p) {
-                          return p.name.toLowerCase().contains(clean) ||
-                              (p.sku?.toLowerCase().contains(clean) ?? false) ||
-                              p.category.toLowerCase().contains(clean);
-                        }).toList();
+                        if (clean.isEmpty) {
+                          filtered = _products;
+                        } else {
+                          filtered = _products.where((p) {
+                            final skuLower = p.sku?.toLowerCase() ?? '';
+                            final barcodeLower = p.barcode?.toLowerCase() ?? '';
+                            return p.name.toLowerCase().contains(clean) ||
+                                skuLower.contains(clean) ||
+                                barcodeLower.contains(clean) ||
+                                p.category.toLowerCase().contains(clean);
+                          }).toList();
+                        }
                       });
                     },
                   ),
                   const SizedBox(height: 12),
                   Expanded(
                     child: filtered.isEmpty
-                        ? const Center(
-                            child: Text('No matching products found.', style: TextStyle(color: AppTheme.textSecondary)),
+                        ? Center(
+                            child: Padding(
+                              padding: const EdgeInsets.all(16),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.search_off, size: 40, color: AppTheme.textMuted),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    searchCtrl.text.trim().isNotEmpty
+                                        ? 'No products matching "${searchCtrl.text.trim()}"'
+                                        : 'No matching products found.',
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(color: AppTheme.textSecondary),
+                                  ),
+                                  if (searchCtrl.text.trim().isNotEmpty) ...[
+                                    const SizedBox(height: 12),
+                                    OutlinedButton(
+                                      key: const Key('clear_search_button'),
+                                      onPressed: () {
+                                        searchCtrl.clear();
+                                        setModalState(() {
+                                          filtered = _products;
+                                        });
+                                      },
+                                      child: const Text('Clear Search'),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
                           )
                         : ListView.separated(
                             itemCount: filtered.length,
@@ -1236,7 +1285,7 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
                                 ),
                                 title: Text(p.name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
                                 subtitle: Text(
-                                  'Price: ${CurrencyHelper.symbol}${p.sellingPrice.toStringAsFixed(0)} • Stock: ${p.stock}',
+                                  'Price: ${CurrencyHelper.symbol}${p.sellingPrice.toStringAsFixed(0)} • Stock: ${p.stock}${p.sku != null && p.sku!.isNotEmpty ? " • SKU: ${p.sku}" : ""}',
                                   style: TextStyle(
                                     fontSize: 12,
                                     color: isOutOfStock ? AppTheme.error : AppTheme.textSecondary,

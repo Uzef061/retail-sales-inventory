@@ -254,7 +254,15 @@ void main() {
       await tester.pump();
       await tester.pumpAndSettle();
 
-      // Verify products are loaded and displayed in POS
+      // Switch to product-based Quick Sale and open product picker
+      await tester.tap(find.text('📦 Select Products'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(const Key('quick_product_picker_button')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('quick_product_picker_button')));
+      await tester.pumpAndSettle();
+
+      // Verify products are loaded and displayed in product selector
       expect(find.text('Premium Coffee Beans'), findsOneWidget);
       expect(find.text('Organic Green Tea'), findsOneWidget);
       expect(find.textContaining('SKU: COF-001'), findsOneWidget);
@@ -313,8 +321,16 @@ void main() {
       await tester.pump();
       await tester.pumpAndSettle();
 
-      // Find search input
-      final searchFinder = find.byType(TextField).first;
+      // Switch to product-based Quick Sale and open product picker
+      await tester.tap(find.text('📦 Select Products'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(const Key('quick_product_picker_button')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('quick_product_picker_button')));
+      await tester.pumpAndSettle();
+
+      // Find search input in product picker modal
+      final searchFinder = find.byKey(const Key('quick_product_search_input'));
 
       // 1. Search by product name
       await tester.enterText(searchFinder, 'Basmati');
@@ -401,6 +417,14 @@ void main() {
       await tester.pump();
       await tester.pumpAndSettle();
 
+      // Switch to product-based Quick Sale and open product picker to verify recovered item
+      await tester.tap(find.text('📦 Select Products'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(const Key('quick_product_picker_button')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('quick_product_picker_button')));
+      await tester.pumpAndSettle();
+
       // Product successfully loaded after retry
       expect(find.text('Recovered Item'), findsOneWidget);
     });
@@ -446,6 +470,14 @@ void main() {
       );
 
       await tester.pump();
+      await tester.pumpAndSettle();
+
+      // Switch to product-based Quick Sale and open product picker
+      await tester.tap(find.text('📦 Select Products'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(const Key('quick_product_picker_button')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('quick_product_picker_button')));
       await tester.pumpAndSettle();
 
       // Verify product is still visible despite customer service failure
