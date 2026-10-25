@@ -31,20 +31,9 @@ const connectDB = async () => {
     }
   }
 
-  // Ensure historical dataset is available for all periods without deleting existing data
-  try {
-    const productCount = await Product.countDocuments();
-    if (productCount === 0) {
-      console.log('Database is empty. Populating initial dummy dataset...');
-      await seedData();
-    } else {
-      const { ensureHistoricalSales } = require('./seed');
-      await ensureHistoricalSales();
-    }
-  } catch (seedErr) {
-    console.error('Error checking or seeding database:', seedErr.message);
-  }
-
+  // Note: Automatic demo seeding on DB connection is disabled to prevent
+  // unassigned dummy records from appearing in tenant and Google-linked accounts.
+  // Demo seeding is available only via explicit /api/seed in authorized dev environments.
   console.log('Database ready.');
 };
 

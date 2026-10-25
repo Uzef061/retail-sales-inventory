@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import '../../core/services/business_service.dart';
+import '../../core/utils/currency_helper.dart';
 import '../../core/config/api_config.dart';
 import '../../core/services/api_client.dart';
 import '../../core/services/auth_service.dart';
@@ -71,6 +73,11 @@ class _HomeScreenState extends State<HomeScreen> {
       try {
         final notifResult = await _notificationService.getNotifications();
         _unreadNotifCount = notifResult.unreadCount;
+      } catch (_) {}
+
+      try {
+        final prof = await BusinessService().getProfile();
+        CurrencyHelper.setCurrency(prof.currency);
       } catch (_) {}
 
       if (mounted) {
@@ -484,7 +491,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                               const SizedBox(height: 6),
                               Text(
-                                '₹${_ledgerSummary.toReceive.toStringAsFixed(0)}',
+                                '${CurrencyHelper.symbol}${_ledgerSummary.toReceive.toStringAsFixed(0)}',
                                 style: const TextStyle(
                                   fontSize: 20,
                                   fontWeight: FontWeight.w900,
@@ -529,7 +536,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                               const SizedBox(height: 6),
                               Text(
-                                '₹${_ledgerSummary.toPay.toStringAsFixed(0)}',
+                                '${CurrencyHelper.symbol}${_ledgerSummary.toPay.toStringAsFixed(0)}',
                                 style: const TextStyle(
                                   fontSize: 20,
                                   fontWeight: FontWeight.w900,
@@ -591,7 +598,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  '₹${d.todaysSales.toStringAsFixed(0)}',
+                  '${CurrencyHelper.symbol}${d.todaysSales.toStringAsFixed(0)}',
                   style: const TextStyle(
                     fontSize: 32,
                     fontWeight: FontWeight.w900,
@@ -655,7 +662,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           const Text('Total Received (In)', style: TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
                           const SizedBox(height: 4),
                           Text(
-                            '+₹${_paymentSummary!.totalReceived.toStringAsFixed(0)}',
+                            '+${CurrencyHelper.symbol}${_paymentSummary!.totalReceived.toStringAsFixed(0)}',
                             style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Color(0xFF2E7D32)),
                           ),
                         ],
@@ -666,7 +673,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           const Text('Total Paid (Out)', style: TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
                           const SizedBox(height: 4),
                           Text(
-                            '-₹${_paymentSummary!.totalGiven.toStringAsFixed(0)}',
+                            '-${CurrencyHelper.symbol}${_paymentSummary!.totalGiven.toStringAsFixed(0)}',
                             style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Color(0xFFD84315)),
                           ),
                         ],
@@ -677,7 +684,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           const Text('Net Cash Flow', style: TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
                           const SizedBox(height: 4),
                           Text(
-                            '₹${_paymentSummary!.netCashFlow.toStringAsFixed(0)}',
+                            '${CurrencyHelper.symbol}${_paymentSummary!.netCashFlow.toStringAsFixed(0)}',
                             style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.w800,
@@ -858,7 +865,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     style: const TextStyle(fontSize: 11, color: AppTheme.textMuted),
                   ),
                   trailing: Text(
-                    '₹${sale.grandTotal.toStringAsFixed(0)}',
+                    '${CurrencyHelper.symbol}${sale.grandTotal.toStringAsFixed(0)}',
                     style: const TextStyle(
                       fontWeight: FontWeight.w800,
                       fontSize: 14,

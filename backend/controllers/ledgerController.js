@@ -5,11 +5,20 @@ const Purchase = require('../models/Purchase');
 const PurchaseReturn = require('../models/PurchaseReturn');
 const Customer = require('../models/Customer');
 const Supplier = require('../models/Supplier');
+const BusinessProfile = require('../models/BusinessProfile');
+const { getCurrencyByCodeOrSymbol } = require('../utils/currencyHelper');
 const { getTenantQuery } = require('../utils/tenantHelper');
+
+async function getCurrencySymbolForUser(userId) {
+  if (!userId) return '₹';
+  const profile = await BusinessProfile.findOne({ userId }).select('currency').lean();
+  return profile ? getCurrencyByCodeOrSymbol(profile.currency).symbol : '₹';
+}
 
 // GET /api/ledger
 exports.getLedger = async (req, res) => {
   try {
+    const currencySymbol = await getCurrencySymbolForUser(req.user?._id);
     const { period = 'month', startDate, endDate, search, type, limit = 200 } = req.query;
     const now = new Date();
 
@@ -107,13 +116,23 @@ exports.getLedger = async (req, res) => {
       }).lean()
     ]);
 
+    // Identify which sale payments are already recorded in PaymentTransaction to prevent double counting
+    const saleInvoicesWithPaymentTx = new Set();
+    for (const p of allPaymentsUpToDate) {
+      if (p.type === 'RECEIVE' && p.referenceNumber) {
+        saleInvoicesWithPaymentTx.add(p.referenceNumber);
+      }
+    }
+
     // Aggregate Customer sales & payments
     for (const s of allSalesUpToDate) {
       const cId = s.customer ? s.customer.toString() : null;
       if (cId && customerMap.has(cId)) {
         const c = customerMap.get(cId);
         c.totalSales += Number(s.grandTotal || s.totalAmount) || 0;
-        c.totalPaidAtSale += Number(s.amountReceived) || 0;
+        if (!saleInvoicesWithPaymentTx.has(s.invoiceNumber)) {
+          c.totalPaidAtSale += Number(s.amountReceived) || 0;
+        }
       }
     }
 
@@ -204,7 +223,9 @@ exports.getLedger = async (req, res) => {
         const saleAmt = Number(s.grandTotal || s.totalAmount) || 0;
         const paidAtSale = Number(s.amountReceived) || 0;
         periodSalesTotal += saleAmt;
-        periodReceivedTotal += Math.min(paidAtSale, saleAmt);
+        if (!saleInvoicesWithPaymentTx.has(s.invoiceNumber)) {
+          periodReceivedTotal += Math.min(paidAtSale, saleAmt);
+        }
 
         const cId = s.customer ? s.customer.toString() : null;
         const cInfo = cId && customerMap.has(cId) ? customerMap.get(cId) : null;
@@ -224,7 +245,7 @@ exports.getLedger = async (req, res) => {
           paymentMethod: s.paymentMethod || 'CASH',
           direction: 'DEBIT',
           directionLabel: 'Sale (Receivable)',
-          balanceImpact: `+₹${saleAmt.toFixed(0)}`,
+          balanceImpact: `+${currencySymbol}${saleAmt.toFixed(0)}`,
           resultingBalance: cId ? (customerBalances[cId] || 0) : 0,
           notes: s.notes || ''
         });
@@ -255,7 +276,7 @@ exports.getLedger = async (req, res) => {
           linkedReference: r.originalInvoiceNumber || '',
           direction: 'CREDIT',
           directionLabel: 'Sale Return (Credit)',
-          balanceImpact: `-₹${retAmt.toFixed(0)}`,
+          balanceImpact: `-${currencySymbol}${retAmt.toFixed(0)}`,
           resultingBalance: cId ? (customerBalances[cId] || 0) : 0,
           notes: r.reason || 'Customer return'
         });
@@ -290,7 +311,7 @@ exports.getLedger = async (req, res) => {
             reference: p.referenceNumber || '',
             direction: 'CREDIT',
             directionLabel: 'Payment Received (In)',
-            balanceImpact: `-₹${amt.toFixed(0)}`,
+            balanceImpact: `-${currencySymbol}${amt.toFixed(0)}`,
             resultingBalance: currentBal,
             notes: p.notes || ''
           });
@@ -313,7 +334,7 @@ exports.getLedger = async (req, res) => {
             reference: p.referenceNumber || '',
             direction: 'DEBIT',
             directionLabel: 'Payment Paid (Out)',
-            balanceImpact: `-₹${amt.toFixed(0)}`,
+            balanceImpact: `-${currencySymbol}${amt.toFixed(0)}`,
             resultingBalance: currentBal,
             notes: p.notes || ''
           });
@@ -343,7 +364,7 @@ exports.getLedger = async (req, res) => {
           reference: pur.referenceNumber || `PUR-${pur._id.toString().slice(-8)}`,
           direction: 'CREDIT',
           directionLabel: 'Purchase (Payable)',
-          balanceImpact: `+₹${purAmt.toFixed(0)}`,
+          balanceImpact: `+${currencySymbol}${purAmt.toFixed(0)}`,
           resultingBalance: sId ? (supplierBalances[sId] || 0) : 0,
           notes: pur.notes || ''
         });
@@ -374,7 +395,7 @@ exports.getLedger = async (req, res) => {
           linkedReference: pr.originalReferenceNumber || '',
           direction: 'DEBIT',
           directionLabel: 'Purchase Return (Debit)',
-          balanceImpact: `-₹${retAmt.toFixed(0)}`,
+          balanceImpact: `-${currencySymbol}${retAmt.toFixed(0)}`,
           resultingBalance: sId ? (supplierBalances[sId] || 0) : 0,
           notes: pr.reason || 'Goods returned to supplier'
         });
@@ -439,3 +460,5 @@ exports.getLedger = async (req, res) => {
     res.status(500).json({ success: false, message: 'Error fetching ledger data', error: error.message });
   }
 };
+
+exports.getLedgerSummary = exports.getLedger;

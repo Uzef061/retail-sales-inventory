@@ -2,7 +2,15 @@ const Supplier = require('../models/Supplier');
 const Purchase = require('../models/Purchase');
 const PurchaseReturn = require('../models/PurchaseReturn');
 const PaymentTransaction = require('../models/PaymentTransaction');
+const BusinessProfile = require('../models/BusinessProfile');
+const { getCurrencyByCodeOrSymbol } = require('../utils/currencyHelper');
 const { getTenantQuery, hasTenantAccess } = require('../utils/tenantHelper');
+
+async function getCurrencySymbolForUser(userId) {
+  if (!userId) return '₹';
+  const profile = await BusinessProfile.findOne({ userId }).select('currency').lean();
+  return profile ? getCurrencyByCodeOrSymbol(profile.currency).symbol : '₹';
+}
 
 // GET /api/suppliers (With Authoritative Balances & Metrics)
 exports.getSuppliers = async (req, res) => {
@@ -68,6 +76,8 @@ exports.getSuppliers = async (req, res) => {
       }
     }
 
+    const currencySymbol = await getCurrencySymbolForUser(req.user?._id);
+
     const enrichedSuppliers = suppliers.map(s => {
       const sId = s._id.toString();
       const totalPurchases = purchaseMap.get(sId) || 0;
@@ -81,10 +91,10 @@ exports.getSuppliers = async (req, res) => {
 
       if (netBalance > 0) {
         balanceStatus = 'OWED_TO_SUPPLIER';
-        balanceLabel = `You Owe ₹${netBalance.toFixed(0)}`;
+        balanceLabel = `You Owe ${currencySymbol}${netBalance.toFixed(0)}`;
       } else if (netBalance < 0) {
         balanceStatus = 'SUPPLIER_ADVANCE';
-        balanceLabel = `Advance ₹${Math.abs(netBalance).toFixed(0)}`;
+        balanceLabel = `Advance ${currencySymbol}${Math.abs(netBalance).toFixed(0)}`;
       }
 
       return {
@@ -296,16 +306,17 @@ exports.getSupplierLedger = async (req, res) => {
     const totalPurchases = purchases.reduce((sum, p) => sum + (Number(p.totalCost || p.grandTotal) || 0), 0);
     const totalPayments = payments.reduce((sum, p) => p.type === 'GIVE' ? sum + (Number(p.amount) || 0) : sum - (Number(p.amount) || 0), 0);
     const totalReturns = returns.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+    const currencySymbol = await getCurrencySymbolForUser(req.user?._id);
     const finalBalance = Math.round(runningBalance * 100) / 100;
 
     let balanceLabel = 'Settled';
     let balanceStatus = 'SETTLED';
     if (finalBalance > 0) {
       balanceStatus = 'OWED_TO_SUPPLIER';
-      balanceLabel = `You owe supplier ₹${finalBalance.toFixed(0)}`;
+      balanceLabel = `You owe supplier ${currencySymbol}${finalBalance.toFixed(0)}`;
     } else if (finalBalance < 0) {
       balanceStatus = 'SUPPLIER_ADVANCE';
-      balanceLabel = `Supplier advance ₹${Math.abs(finalBalance).toFixed(0)}`;
+      balanceLabel = `Supplier advance ${currencySymbol}${Math.abs(finalBalance).toFixed(0)}`;
     }
 
     res.status(200).json({

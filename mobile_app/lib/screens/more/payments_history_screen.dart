@@ -4,6 +4,7 @@ import '../../core/services/api_client.dart';
 import '../../core/services/ledger_service.dart';
 import '../../core/services/sales_service.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/currency_helper.dart';
 import '../../models/ledger_entry.dart';
 import '../../models/sale.dart';
 import '../home/receive_give_dialog.dart';
@@ -183,7 +184,7 @@ class _PaymentsHistoryScreenState extends State<PaymentsHistoryScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Are you sure you want to delete this payment of ₹${entry.amount.toStringAsFixed(0)}?'),
+            Text('Are you sure you want to delete this payment of ${CurrencyHelper.symbol}${entry.amount.toStringAsFixed(0)}?'),
             const SizedBox(height: 8),
             Text('• ${entry.partyName}\'s balance will be recalculated immediately.'),
             const SizedBox(height: 4),
@@ -248,9 +249,9 @@ class _PaymentsHistoryScreenState extends State<PaymentsHistoryScreen> {
               TextField(
                 controller: amountController,
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                decoration: const InputDecoration(
-                  labelText: 'Amount (₹)',
-                  prefixText: '₹ ',
+                decoration: InputDecoration(
+                  labelText: 'Amount (${CurrencyHelper.symbol})',
+                  prefixText: '${CurrencyHelper.symbol} ',
                 ),
               ),
               const SizedBox(height: 12),
@@ -598,7 +599,7 @@ class _PaymentsHistoryScreenState extends State<PaymentsHistoryScreen> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        '₹${_summary.toReceive.toStringAsFixed(0)}',
+                        '${CurrencyHelper.symbol}${_summary.toReceive.toStringAsFixed(0)}',
                         style: const TextStyle(
                           fontSize: 22,
                           fontWeight: FontWeight.w900,
@@ -646,7 +647,7 @@ class _PaymentsHistoryScreenState extends State<PaymentsHistoryScreen> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        '₹${_summary.toPay.toStringAsFixed(0)}',
+                        '${CurrencyHelper.symbol}${_summary.toPay.toStringAsFixed(0)}',
                         style: const TextStyle(
                           fontSize: 22,
                           fontWeight: FontWeight.w900,
@@ -695,7 +696,7 @@ class _PaymentsHistoryScreenState extends State<PaymentsHistoryScreen> {
                 ),
               ),
               Text(
-                'Net: ${_summary.netCashFlow >= 0 ? "+" : ""}₹${_summary.netCashFlow.toStringAsFixed(0)}',
+                'Net: ${_summary.netCashFlow >= 0 ? "+" : ""}${CurrencyHelper.symbol}${_summary.netCashFlow.toStringAsFixed(0)}',
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w800,
@@ -714,7 +715,7 @@ class _PaymentsHistoryScreenState extends State<PaymentsHistoryScreen> {
                     const Text('Total Received (In)', style: TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
                     const SizedBox(height: 2),
                     Text(
-                      '+₹${_summary.periodTotalIn.toStringAsFixed(0)}',
+                      '+${CurrencyHelper.symbol}${_summary.periodTotalIn.toStringAsFixed(0)}',
                       style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFF2E7D32)),
                     ),
                   ],
@@ -727,7 +728,7 @@ class _PaymentsHistoryScreenState extends State<PaymentsHistoryScreen> {
                     const Text('Total Paid (Out)', style: TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
                     const SizedBox(height: 2),
                     Text(
-                      '-₹${_summary.periodTotalOut.toStringAsFixed(0)}',
+                      '-${CurrencyHelper.symbol}${_summary.periodTotalOut.toStringAsFixed(0)}',
                       style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFFD84315)),
                     ),
                   ],
@@ -741,7 +742,7 @@ class _PaymentsHistoryScreenState extends State<PaymentsHistoryScreen> {
                       const Text('Returns Value', style: TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
                       const SizedBox(height: 2),
                       Text(
-                        '₹${_summary.periodReturns.toStringAsFixed(0)}',
+                        '${CurrencyHelper.symbol}${_summary.periodReturns.toStringAsFixed(0)}',
                         style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFFE65100)),
                       ),
                     ],
@@ -918,7 +919,7 @@ class _PaymentsHistoryScreenState extends State<PaymentsHistoryScreen> {
                   ),
                   const SizedBox(width: 8),
                   Text(
-                    '₹${entry.amount.toStringAsFixed(0)}',
+                    '${CurrencyHelper.symbol}${entry.amount.toStringAsFixed(0)}',
                     style: TextStyle(
                       fontSize: 17,
                       fontWeight: FontWeight.w900,
@@ -1063,7 +1064,7 @@ class _PaymentsHistoryScreenState extends State<PaymentsHistoryScreen> {
                   ),
                   if (entry.resultingBalance > 0)
                     Text(
-                      'Bal: ₹${entry.resultingBalance.toStringAsFixed(0)}',
+                      'Bal: ${CurrencyHelper.symbol}${entry.resultingBalance.toStringAsFixed(0)}',
                       style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.textSecondary),
                     ),
                 ],

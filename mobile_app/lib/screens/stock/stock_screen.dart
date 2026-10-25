@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../core/config/api_config.dart';
 import '../../core/services/api_client.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/currency_helper.dart';
 import '../../models/product.dart';
 import 'add_product_dialog.dart';
 
@@ -412,7 +413,7 @@ class _StockScreenState extends State<StockScreen> {
                         style: TextStyle(fontSize: 11, color: AppTheme.textMuted),
                       ),
                       Text(
-                        '₹${p.sellingPrice.toStringAsFixed(0)}',
+                        '${CurrencyHelper.symbol}${p.sellingPrice.toStringAsFixed(0)}',
                         style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w800,
@@ -429,7 +430,7 @@ class _StockScreenState extends State<StockScreen> {
                         style: TextStyle(fontSize: 11, color: AppTheme.textMuted),
                       ),
                       Text(
-                        '₹${p.costPrice.toStringAsFixed(0)}',
+                        '${CurrencyHelper.symbol}${p.costPrice.toStringAsFixed(0)}',
                         style: const TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w600,

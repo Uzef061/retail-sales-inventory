@@ -196,6 +196,29 @@ exports.createSale = async (req, res) => {
       });
 
       const savedSale = await newSale.save();
+
+      // Record linked PaymentTransaction for payments received at sale time
+      const effectiveReceived = Math.min(amtReceived, grandTotalCalc);
+      if (effectiveReceived > 0 && targetCustomer) {
+        const pTx = new PaymentTransaction({
+          userId: req.user?._id,
+          businessId: req.user?.businessId,
+          type: 'RECEIVE',
+          partyType: 'CUSTOMER',
+          partyId: targetCustomer._id,
+          partyModel: 'Customer',
+          partyName: targetCustomer.name,
+          amount: effectiveReceived,
+          paymentMethod: normalizePaymentMethod(paymentMethod),
+          transactionDate: parsedSaleDate,
+          referenceNumber: invoiceNumber,
+          notes: `Payment for sale ${invoiceNumber}`,
+          idempotencyKey: `pay_sale_${savedSale._id}`,
+          createdById: req.user?._id
+        });
+        await pTx.save();
+      }
+
       const populatedSale = await Sale.findById(savedSale._id)
         .populate('customer', 'name email phone address');
 
@@ -403,6 +426,29 @@ exports.createSale = async (req, res) => {
     });
 
     const savedSale = await newSale.save();
+
+    // Record linked PaymentTransaction for payments received at sale time
+    const effectiveReceived = Math.min(amtReceived, grandTotalCalc);
+    if (effectiveReceived > 0 && targetCustomer) {
+      const pTx = new PaymentTransaction({
+        userId: req.user?._id,
+        businessId: req.user?.businessId,
+        type: 'RECEIVE',
+        partyType: 'CUSTOMER',
+        partyId: targetCustomer._id,
+        partyModel: 'Customer',
+        partyName: targetCustomer.name,
+        amount: effectiveReceived,
+        paymentMethod: normalizePaymentMethod(paymentMethod),
+        transactionDate: parsedSaleDate,
+        referenceNumber: invoiceNumber,
+        notes: `Payment for sale ${invoiceNumber}`,
+        idempotencyKey: `pay_sale_${savedSale._id}`,
+        createdById: req.user?._id
+      });
+      await pTx.save();
+    }
+
     const populatedSale = await Sale.findById(savedSale._id)
       .populate('customer', 'name email phone address')
       .populate('product', 'name price sellingPrice costPrice category stock')
@@ -477,6 +523,14 @@ exports.cancelSale = async (req, res) => {
     if (reason) sale.cancellationReason = reason;
 
     await sale.save();
+
+    // Clean up linked PaymentTransactions for this cancelled sale
+    if (sale.invoiceNumber) {
+      await PaymentTransaction.deleteMany({
+        referenceNumber: sale.invoiceNumber,
+        ...getTenantQuery(req)
+      });
+    }
 
     const updatedSale = await Sale.findById(sale._id)
       .populate('customer', 'name email phone')
@@ -1133,6 +1187,70 @@ exports.updateSale = async (req, res) => {
 
       await existingSale.save();
 
+    // Synchronize PaymentTransaction for updated sale
+    if (existingSale.invoiceNumber) {
+      const effectiveReceived = Math.min(Number(existingSale.amountReceived) || 0, existingSale.grandTotal);
+      if (effectiveReceived > 0 && existingSale.customer) {
+        const custDoc = await Customer.findById(existingSale.customer);
+        await PaymentTransaction.findOneAndUpdate(
+          { referenceNumber: existingSale.invoiceNumber, type: 'RECEIVE', ...getTenantQuery(req) },
+          {
+            userId: req.user?._id,
+            businessId: req.user?.businessId,
+            type: 'RECEIVE',
+            partyType: 'CUSTOMER',
+            partyId: existingSale.customer,
+            partyModel: 'Customer',
+            partyName: custDoc?.name || 'Customer',
+            amount: effectiveReceived,
+            paymentMethod: existingSale.paymentMethod || 'CASH',
+            transactionDate: existingSale.saleDate || new Date(),
+            referenceNumber: existingSale.invoiceNumber,
+            notes: `Payment for sale ${existingSale.invoiceNumber}`
+          },
+          { upsert: true, new: true, setDefaultsOnInsert: true }
+        );
+      } else {
+        await PaymentTransaction.deleteMany({
+          referenceNumber: existingSale.invoiceNumber,
+          type: 'RECEIVE',
+          ...getTenantQuery(req)
+        });
+      }
+    }
+
+      // Synchronize PaymentTransaction for updated sale
+      if (existingSale.invoiceNumber) {
+        const effectiveReceived = Math.min(Number(existingSale.amountReceived) || 0, existingSale.grandTotal);
+        if (effectiveReceived > 0 && existingSale.customer) {
+          const custDoc = await Customer.findById(existingSale.customer);
+          await PaymentTransaction.findOneAndUpdate(
+            { referenceNumber: existingSale.invoiceNumber, type: 'RECEIVE', ...getTenantQuery(req) },
+            {
+              userId: req.user?._id,
+              businessId: req.user?.businessId,
+              type: 'RECEIVE',
+              partyType: 'CUSTOMER',
+              partyId: existingSale.customer,
+              partyModel: 'Customer',
+              partyName: custDoc?.name || 'Customer',
+              amount: effectiveReceived,
+              paymentMethod: existingSale.paymentMethod || 'CASH',
+              transactionDate: existingSale.saleDate || new Date(),
+              referenceNumber: existingSale.invoiceNumber,
+              notes: `Payment for sale ${existingSale.invoiceNumber}`
+            },
+            { upsert: true, new: true, setDefaultsOnInsert: true }
+          );
+        } else {
+          await PaymentTransaction.deleteMany({
+            referenceNumber: existingSale.invoiceNumber,
+            type: 'RECEIVE',
+            ...getTenantQuery(req)
+          });
+        }
+      }
+
       const updatedSale = await Sale.findById(existingSale._id)
         .populate('customer', 'name email phone address')
         .populate('product', 'name price sellingPrice costPrice category stock')
@@ -1302,6 +1420,38 @@ exports.updateSale = async (req, res) => {
     }
 
     await existingSale.save();
+
+    // Synchronize PaymentTransaction for updated sale
+    if (existingSale.invoiceNumber) {
+      const effectiveReceived = Math.min(Number(existingSale.amountReceived) || 0, existingSale.grandTotal);
+      if (effectiveReceived > 0 && existingSale.customer) {
+        const custDoc = await Customer.findById(existingSale.customer);
+        await PaymentTransaction.findOneAndUpdate(
+          { referenceNumber: existingSale.invoiceNumber, type: 'RECEIVE', ...getTenantQuery(req) },
+          {
+            userId: req.user?._id,
+            businessId: req.user?.businessId,
+            type: 'RECEIVE',
+            partyType: 'CUSTOMER',
+            partyId: existingSale.customer,
+            partyModel: 'Customer',
+            partyName: custDoc?.name || 'Customer',
+            amount: effectiveReceived,
+            paymentMethod: existingSale.paymentMethod || 'CASH',
+            transactionDate: existingSale.saleDate || new Date(),
+            referenceNumber: existingSale.invoiceNumber,
+            notes: `Payment for sale ${existingSale.invoiceNumber}`
+          },
+          { upsert: true, new: true, setDefaultsOnInsert: true }
+        );
+      } else {
+        await PaymentTransaction.deleteMany({
+          referenceNumber: existingSale.invoiceNumber,
+          type: 'RECEIVE',
+          ...getTenantQuery(req)
+        });
+      }
+    }
 
     const updatedSale = await Sale.findById(existingSale._id)
       .populate('customer', 'name email phone address')

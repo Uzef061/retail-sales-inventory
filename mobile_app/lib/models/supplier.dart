@@ -1,3 +1,5 @@
+import '../core/utils/currency_helper.dart';
+
 class Supplier {
   final String id;
   final String name;
@@ -23,7 +25,7 @@ class Supplier {
     this.isActive = true,
     this.balance = 0.0,
     this.balanceStatus = 'SETTLED',
-    this.balanceLabel = '₹0',
+    this.balanceLabel = '',
     this.totalPurchases = 0.0,
     this.totalPayments = 0.0,
     this.totalReturns = 0.0,
@@ -49,11 +51,11 @@ class Supplier {
     String label = json['balanceLabel']?.toString() ?? '';
     if (label.isEmpty) {
       if (bal > 0) {
-        label = 'You owe ₹${bal.toStringAsFixed(0)}';
+        label = 'You owe ${CurrencyHelper.symbol}${bal.toStringAsFixed(0)}';
       } else if (bal < 0) {
-        label = 'Advance ₹${(-bal).toStringAsFixed(0)}';
+        label = 'Advance ${CurrencyHelper.symbol}${(-bal).toStringAsFixed(0)}';
       } else {
-        label = 'Settled (₹0)';
+        label = 'Settled (${CurrencyHelper.symbol}0)';
       }
     }
 

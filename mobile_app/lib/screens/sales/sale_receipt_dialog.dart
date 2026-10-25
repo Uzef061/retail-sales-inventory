@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import '../../core/services/api_client.dart';
 import '../../core/services/sales_service.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/currency_helper.dart';
 import '../../models/sale.dart';
 import 'return_sale_dialog.dart';
 
@@ -25,7 +26,7 @@ class SaleReceiptDialog extends StatelessWidget {
         builder: (ctx) => AlertDialog(
           title: const Text('Cannot Delete Sale'),
           content: Text(
-            'Sale "${sale.invoiceNumber}" has active returns (₹${sale.returnedAmount.toStringAsFixed(0)}).\n\n'
+            'Sale "${sale.invoiceNumber}" has active returns (${CurrencyHelper.symbol}${sale.returnedAmount.toStringAsFixed(0)}).\n\n'
             'Please delete or reverse the sales returns first before deleting this sale.',
           ),
           actions: [
@@ -54,7 +55,7 @@ class SaleReceiptDialog extends StatelessWidget {
             const SizedBox(height: 12),
             if (sale.items.isNotEmpty)
               Text('• Restores ${sale.items.length} item(s) back into inventory.'),
-            Text('• Deducts ₹${sale.grandTotal.toStringAsFixed(0)} from customer balance & reports.'),
+            Text('• Deducts ${CurrencyHelper.symbol}${sale.grandTotal.toStringAsFixed(0)} from customer balance & reports.'),
             const SizedBox(height: 6),
             const Text(
               '• This action is permanent and cannot be undone.',
@@ -236,7 +237,7 @@ class SaleReceiptDialog extends StatelessWidget {
                               style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.textPrimary),
                             ),
                             Text(
-                              '₹${item.sellingPrice.toStringAsFixed(0)} each',
+                              '${CurrencyHelper.symbol}${item.sellingPrice.toStringAsFixed(0)} each',
                               style: const TextStyle(fontSize: 11, color: AppTheme.textMuted),
                             ),
                           ],
@@ -253,7 +254,7 @@ class SaleReceiptDialog extends StatelessWidget {
                       Expanded(
                         flex: 3,
                         child: Text(
-                          '₹${item.totalAmount.toStringAsFixed(0)}',
+                          '${CurrencyHelper.symbol}${item.totalAmount.toStringAsFixed(0)}',
                           textAlign: TextAlign.end,
                           style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.textPrimary),
                         ),
@@ -273,7 +274,7 @@ class SaleReceiptDialog extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Text('Discount:', style: TextStyle(fontSize: 13, color: AppTheme.textSecondary)),
-                    Text('-₹${sale.discount.toStringAsFixed(0)}', style: const TextStyle(fontSize: 13, color: AppTheme.error)),
+                    Text('-${CurrencyHelper.symbol}${sale.discount.toStringAsFixed(0)}', style: const TextStyle(fontSize: 13, color: AppTheme.error)),
                   ],
                 ),
                 const SizedBox(height: 4),
@@ -283,7 +284,7 @@ class SaleReceiptDialog extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Text('Tax / GST:', style: TextStyle(fontSize: 13, color: AppTheme.textSecondary)),
-                    Text('+₹${sale.tax.toStringAsFixed(0)}', style: const TextStyle(fontSize: 13, color: AppTheme.textSecondary)),
+                    Text('+${CurrencyHelper.symbol}${sale.tax.toStringAsFixed(0)}', style: const TextStyle(fontSize: 13, color: AppTheme.textSecondary)),
                   ],
                 ),
                 const SizedBox(height: 4),
@@ -293,7 +294,7 @@ class SaleReceiptDialog extends StatelessWidget {
                 children: [
                   const Text('Grand Total:', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppTheme.textPrimary)),
                   Text(
-                    '₹${sale.grandTotal.toStringAsFixed(0)}',
+                    '${CurrencyHelper.symbol}${sale.grandTotal.toStringAsFixed(0)}',
                     style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: AppTheme.primary),
                   ),
                 ],
@@ -305,7 +306,7 @@ class SaleReceiptDialog extends StatelessWidget {
                   children: [
                     const Text('Returned Amount:', style: TextStyle(fontSize: 13, color: AppTheme.warning)),
                     Text(
-                      '-₹${sale.returnedAmount.toStringAsFixed(0)}',
+                      '-${CurrencyHelper.symbol}${sale.returnedAmount.toStringAsFixed(0)}',
                       style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppTheme.warning),
                     ),
                   ],
@@ -316,7 +317,7 @@ class SaleReceiptDialog extends StatelessWidget {
                   children: [
                     const Text('Net Balance:', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.textPrimary)),
                     Text(
-                      '₹${sale.remainingReturnable.toStringAsFixed(0)}',
+                      '${CurrencyHelper.symbol}${sale.remainingReturnable.toStringAsFixed(0)}',
                       style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppTheme.textPrimary),
                     ),
                   ],

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../core/services/business_service.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/currency_helper.dart';
 import '../../models/business_profile.dart';
 
 class BusinessProfileScreen extends StatefulWidget {
@@ -40,13 +41,26 @@ class _BusinessProfileScreenState extends State<BusinessProfileScreen> {
 
   final List<Map<String, String>> _currencies = [
     {'code': 'PKR', 'label': 'PKR - Pakistani Rupee (Rs)'},
+    {'code': 'NPR', 'label': 'NPR - Nepalese Rupee (रू)'},
+    {'code': 'INR', 'label': 'INR - Indian Rupee (₹)'},
     {'code': 'USD', 'label': 'USD - US Dollar (\$)'},
     {'code': 'EUR', 'label': 'EUR - Euro (€)'},
     {'code': 'GBP', 'label': 'GBP - British Pound (£)'},
-    {'code': 'INR', 'label': 'INR - Indian Rupee (₹)'},
     {'code': 'AED', 'label': 'AED - UAE Dirham (AED)'},
     {'code': 'SAR', 'label': 'SAR - Saudi Riyal (SAR)'},
   ];
+
+  String get _selectedCurrencyCode {
+    final cur = _currencyController.text.trim();
+    if (_currencies.any((c) => c['code'] == cur)) return cur;
+    if (cur == 'रू' || cur == 'NRs') return 'NPR';
+    if (cur == '₹') return 'INR';
+    if (cur == '₨' || cur == 'Rs' || cur == 'Rs.') return 'PKR';
+    if (cur == '\$') return 'USD';
+    if (cur == '€') return 'EUR';
+    if (cur == '£') return 'GBP';
+    return 'INR';
+  }
 
   @override
   void initState() {
@@ -92,7 +106,8 @@ class _BusinessProfileScreenState extends State<BusinessProfileScreen> {
     _ownerNameController.text = profile.ownerName;
     _categoryController.text = profile.category;
     _phoneController.text = profile.phone;
-    _currencyController.text = profile.currency.isNotEmpty ? profile.currency : 'PKR';
+    _currencyController.text = profile.currency.isNotEmpty ? profile.currency : 'INR';
+    CurrencyHelper.setCurrency(profile.currency);
     _taxNumberController.text = profile.taxNumber;
     _receiptHeaderController.text = profile.receiptHeader;
     _receiptFooterController.text = profile.receiptFooter.isNotEmpty
@@ -292,9 +307,7 @@ class _BusinessProfileScreenState extends State<BusinessProfileScreen> {
                       ),
                       const SizedBox(height: 10),
                       DropdownButtonFormField<String>(
-                        value: _currencies.any((c) => c['code'] == _currencyController.text)
-                            ? _currencyController.text
-                            : 'PKR',
+                        value: _selectedCurrencyCode,
                         decoration: const InputDecoration(
                           labelText: 'Default Currency',
                           prefixIcon: Icon(Icons.payments_outlined),
@@ -304,7 +317,10 @@ class _BusinessProfileScreenState extends State<BusinessProfileScreen> {
                             .map((c) => DropdownMenuItem(value: c['code'], child: Text(c['label']!)))
                             .toList(),
                         onChanged: (val) {
-                          if (val != null) setState(() => _currencyController.text = val);
+                          if (val != null) {
+                            setState(() => _currencyController.text = val);
+                            CurrencyHelper.setCurrency(val);
+                          }
                         },
                       ),
                       const SizedBox(height: 14),

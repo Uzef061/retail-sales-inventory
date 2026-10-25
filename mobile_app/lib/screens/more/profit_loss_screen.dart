@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../core/config/api_config.dart';
 import '../../core/services/api_client.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/currency_helper.dart';
 import '../../models/profit_loss_data.dart';
 
 class ProfitLossScreen extends StatefulWidget {
@@ -198,7 +199,7 @@ class _ProfitLossScreenState extends State<ProfitLossScreen> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  '₹${d.netProfit.toStringAsFixed(0)}',
+                  '${CurrencyHelper.symbol}${d.netProfit.toStringAsFixed(0)}',
                   style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w900, color: Colors.white),
                 ),
                 const SizedBox(height: 6),
@@ -224,7 +225,7 @@ class _ProfitLossScreenState extends State<ProfitLossScreen> {
                         const Text('Total Revenue', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
                         const SizedBox(height: 6),
                         Text(
-                          '₹${d.revenue.toStringAsFixed(0)}',
+                          '${CurrencyHelper.symbol}${d.revenue.toStringAsFixed(0)}',
                           style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppTheme.textPrimary),
                         ),
                         const SizedBox(height: 4),
@@ -248,7 +249,7 @@ class _ProfitLossScreenState extends State<ProfitLossScreen> {
                         const Text('Cost of Goods', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
                         const SizedBox(height: 6),
                         Text(
-                          '₹${d.cost.toStringAsFixed(0)}',
+                          '${CurrencyHelper.symbol}${d.cost.toStringAsFixed(0)}',
                           style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppTheme.textPrimary),
                         ),
                         const SizedBox(height: 4),
@@ -323,9 +324,9 @@ class _ProfitLossScreenState extends State<ProfitLossScreen> {
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
-                          Text('₹${item.sales.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
+                          Text('${CurrencyHelper.symbol}${item.sales.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
                           Text(
-                            '+₹${item.profit.toStringAsFixed(0)} profit',
+                            '+${CurrencyHelper.symbol}${item.profit.toStringAsFixed(0)} profit',
                             style: const TextStyle(fontSize: 11, color: AppTheme.success, fontWeight: FontWeight.w600),
                           ),
                         ],

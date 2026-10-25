@@ -166,6 +166,7 @@ export default function Customers() {
                   <th>{t('fullName') || 'Customer Name'}</th>
                   <th>{t('phoneNumber') || 'Phone'}</th>
                   <th>{t('emailAddress') || 'Email'}</th>
+                  <th>Balance / Ledger</th>
                   <th style={{ textAlign: 'right' }}>{t('actions') || 'Actions'}</th>
                 </tr>
               </thead>
@@ -188,6 +189,25 @@ export default function Customers() {
                       <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
                         <Mail size={13} color="var(--text-muted)" />
                         {cust.email}
+                      </span>
+                    </td>
+                    <td>
+                      <span
+                        className={`badge ${
+                          cust.balanceStatus === 'OWED_BY_CUSTOMER' || cust.balance > 0
+                            ? 'badge-warning'
+                            : (cust.balanceStatus === 'CUSTOMER_CREDIT' || cust.balance < 0
+                              ? 'badge-info'
+                              : 'badge-success')
+                        }`}
+                        style={{ fontWeight: 600, fontSize: '0.8rem' }}
+                      >
+                        {cust.balanceLabel ||
+                          (cust.balance > 0
+                            ? `Owes ₹${cust.balance.toLocaleString()}`
+                            : (cust.balance < 0
+                              ? `Credit ₹${(-cust.balance).toLocaleString()}`
+                              : 'Settled (₹0)'))}
                       </span>
                     </td>
                     <td style={{ textAlign: 'right' }}>

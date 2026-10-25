@@ -6,19 +6,20 @@
 const getTenantQuery = (req, baseQuery = {}) => {
   let tenantFilter;
   if (!req || !req.user) {
+    // Unauthenticated access: only allow unassigned demo records
     tenantFilter = {
       $or: [{ userId: null }, { userId: { $exists: false } }, { isDemoRecord: true }]
     };
   } else {
+    // Authenticated tenant: strictly scoped to this user's ID (and businessId)
+    // Never leak unassigned/demo records (userId: null) to authenticated accounts!
     const orConditions = [
-      { userId: req.user._id },
-      { userId: null },
-      { userId: { $exists: false } }
+      { userId: req.user._id }
     ];
     if (req.user.businessId) {
       orConditions.push({ businessId: req.user.businessId });
     }
-    tenantFilter = { $or: orConditions };
+    tenantFilter = orConditions.length === 1 ? orConditions[0] : { $or: orConditions };
   }
 
   if (!baseQuery || Object.keys(baseQuery).length === 0) {
@@ -65,12 +66,7 @@ const hasTenantAccess = (doc, req) => {
     return true;
   }
 
-  // Legacy document without a userId is accessible
-  if (!doc.userId) {
-    return true;
-  }
-
-  // Cross-tenant access is strictly forbidden
+  // Unassigned legacy/demo records are not accessible to authenticated tenant accounts
   return false;
 };
 

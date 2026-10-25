@@ -425,6 +425,28 @@ class _PartiesScreenState extends State<PartiesScreen> with SingleTickerProvider
                             ],
                           ),
                         ],
+                        const SizedBox(height: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: c.isOwes
+                                ? AppTheme.errorLight
+                                : (c.isCredit
+                                    ? AppTheme.success.withValues(alpha: 0.15)
+                                    : Colors.grey.shade100),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            c.balanceLabel,
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: c.isOwes
+                                  ? AppTheme.error
+                                  : (c.isCredit ? AppTheme.success : AppTheme.textSecondary),
+                            ),
+                          ),
+                        ),
                       ],
                     ),
                     trailing: Row(

@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import '../../core/config/api_config.dart';
 import '../../core/services/api_client.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/currency_helper.dart';
 import '../../models/product.dart';
 import '../../models/purchase.dart';
 import '../../models/supplier.dart';
@@ -539,7 +540,7 @@ class _PurchasesScreenState extends State<PurchasesScreen> with SingleTickerProv
             ),
             const SizedBox(height: 12),
             Text('• Deducts ${pu.quantity} unit(s) from current product stock.'),
-            Text('• Reverses ₹${pu.totalCost.toStringAsFixed(0)} from supplier balance and ledger.'),
+            Text('• Reverses ${CurrencyHelper.symbol}${pu.totalCost.toStringAsFixed(0)} from supplier balance and ledger.'),
             const SizedBox(height: 6),
             const Text(
               '• Note: If received items were already sold, deletion is safely blocked by the server to prevent negative inventory.',
@@ -918,11 +919,11 @@ class _PurchasesScreenState extends State<PurchasesScreen> with SingleTickerProv
                           child: TextFormField(
                             controller: _itemCostController,
                             keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                            decoration: const InputDecoration(
+                            decoration: InputDecoration(
                               labelText: 'Unit Cost',
-                              prefixText: '₹ ',
-                              border: OutlineInputBorder(),
-                              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                              prefixText: '${CurrencyHelper.symbol} ',
+                              border: const OutlineInputBorder(),
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                             ),
                           ),
                         ),
@@ -969,14 +970,14 @@ class _PurchasesScreenState extends State<PurchasesScreen> with SingleTickerProv
                                 children: [
                                   Text(item.product.name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
                                   Text(
-                                    '${item.quantity} units @ ₹${item.costPrice.toStringAsFixed(0)}',
+                                    '${item.quantity} units @ ${CurrencyHelper.symbol}${item.costPrice.toStringAsFixed(0)}',
                                     style: const TextStyle(fontSize: 11, color: AppTheme.textMuted),
                                   ),
                                 ],
                               ),
                             ),
                             Text(
-                              '₹${item.total.toStringAsFixed(0)}',
+                              '${CurrencyHelper.symbol}${item.total.toStringAsFixed(0)}',
                               style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
                             ),
                             IconButton(
@@ -1043,8 +1044,8 @@ class _PurchasesScreenState extends State<PurchasesScreen> with SingleTickerProv
                     controller: _amountPaidController,
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
                     decoration: InputDecoration(
-                      labelText: 'Amount Paid Now (₹) *',
-                      prefixText: '₹ ',
+                      labelText: 'Amount Paid Now (${CurrencyHelper.symbol}) *',
+                      prefixText: '${CurrencyHelper.symbol} ',
                       border: const OutlineInputBorder(),
                       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                       helperText: _paymentMode == 'UNPAID'
@@ -1075,7 +1076,7 @@ class _PurchasesScreenState extends State<PurchasesScreen> with SingleTickerProv
                     children: [
                       ActionChip(
                         avatar: const Icon(Icons.money_off, size: 14),
-                        label: const Text('₹0 Credit (Unpaid)', style: TextStyle(fontSize: 11)),
+                        label: Text('${CurrencyHelper.symbol}0 Credit (Unpaid)', style: const TextStyle(fontSize: 11)),
                         onPressed: () {
                           setState(() {
                             _paymentMode = 'UNPAID';
@@ -1086,7 +1087,7 @@ class _PurchasesScreenState extends State<PurchasesScreen> with SingleTickerProv
                       if (total > 0) ...[
                         ActionChip(
                           avatar: const Icon(Icons.pie_chart_outline, size: 14),
-                          label: Text('50% (₹${(total * 0.5).toStringAsFixed(0)})', style: const TextStyle(fontSize: 11)),
+                          label: Text('50% (${CurrencyHelper.symbol}${(total * 0.5).toStringAsFixed(0)})', style: const TextStyle(fontSize: 11)),
                           onPressed: () {
                             setState(() {
                               _paymentMode = 'PARTIALLY_PAID';
@@ -1096,7 +1097,7 @@ class _PurchasesScreenState extends State<PurchasesScreen> with SingleTickerProv
                         ),
                         ActionChip(
                           avatar: const Icon(Icons.check_circle_outline, size: 14),
-                          label: Text('Full ₹${total.toStringAsFixed(0)} Paid', style: const TextStyle(fontSize: 11)),
+                          label: Text('Full ${CurrencyHelper.symbol}${total.toStringAsFixed(0)} Paid', style: const TextStyle(fontSize: 11)),
                           onPressed: () {
                             setState(() {
                               _paymentMode = 'PAID';
@@ -1176,7 +1177,7 @@ class _PurchasesScreenState extends State<PurchasesScreen> with SingleTickerProv
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Text('Total Purchase Order:', style: TextStyle(fontSize: 14, color: AppTheme.textSecondary)),
-                    Text('₹${total.toStringAsFixed(0)}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    Text('${CurrencyHelper.symbol}${total.toStringAsFixed(0)}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                   ],
                 ),
                 const SizedBox(height: 6),
@@ -1185,7 +1186,7 @@ class _PurchasesScreenState extends State<PurchasesScreen> with SingleTickerProv
                   children: [
                     const Text('Amount Paid Now:', style: TextStyle(fontSize: 14, color: AppTheme.textSecondary)),
                     Text(
-                      '₹${paid.toStringAsFixed(0)}',
+                      '${CurrencyHelper.symbol}${paid.toStringAsFixed(0)}',
                       style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppTheme.success),
                     ),
                   ],
@@ -1199,7 +1200,7 @@ class _PurchasesScreenState extends State<PurchasesScreen> with SingleTickerProv
                     const Text('Added to Supplier Payable (TO PAY):',
                         style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppTheme.textPrimary)),
                     Text(
-                      '₹${remainingPayable.toStringAsFixed(0)}',
+                      '${CurrencyHelper.symbol}${remainingPayable.toStringAsFixed(0)}',
                       style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.w800,
@@ -1222,7 +1223,7 @@ class _PurchasesScreenState extends State<PurchasesScreen> with SingleTickerProv
                   ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                   : const Icon(Icons.check_circle_outline, size: 20),
               label: Text(
-                _isSubmitting ? 'Recording Purchase...' : 'Confirm Restock & Update Stock • ₹${total.toStringAsFixed(0)}',
+                _isSubmitting ? 'Recording Purchase...' : 'Confirm Restock & Update Stock • ${CurrencyHelper.symbol}${total.toStringAsFixed(0)}',
                 style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
               ),
               style: ElevatedButton.styleFrom(
@@ -1302,7 +1303,7 @@ class _PurchasesScreenState extends State<PurchasesScreen> with SingleTickerProv
               } else if (pu.isPartiallyPaid) {
                 payBadgeColor = Colors.orange.shade50;
                 payTextColor = Colors.orange.shade800;
-                payText = 'PARTIAL (PAID ₹${pu.amountPaid.toStringAsFixed(0)})';
+                payText = 'PARTIAL (PAID ${CurrencyHelper.symbol}${pu.amountPaid.toStringAsFixed(0)})';
               } else {
                 payBadgeColor = AppTheme.errorLight;
                 payTextColor = AppTheme.error;
@@ -1355,7 +1356,7 @@ class _PurchasesScreenState extends State<PurchasesScreen> with SingleTickerProv
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
-                                  'Restocked: +${pu.quantity} units @ ₹${pu.costPrice.toStringAsFixed(0)}',
+                                  'Restocked: +${pu.quantity} units @ ${CurrencyHelper.symbol}${pu.costPrice.toStringAsFixed(0)}',
                                   style: const TextStyle(fontSize: 12, color: AppTheme.success, fontWeight: FontWeight.w600),
                                 ),
                               ],
@@ -1365,7 +1366,7 @@ class _PurchasesScreenState extends State<PurchasesScreen> with SingleTickerProv
                             crossAxisAlignment: CrossAxisAlignment.end,
                             children: [
                               Text(
-                                '₹${pu.totalCost.toStringAsFixed(0)}',
+                                '${CurrencyHelper.symbol}${pu.totalCost.toStringAsFixed(0)}',
                                 style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppTheme.textPrimary),
                               ),
                               const SizedBox(height: 4),
@@ -1403,7 +1404,7 @@ class _PurchasesScreenState extends State<PurchasesScreen> with SingleTickerProv
                               const Icon(Icons.rotate_left, size: 14, color: Colors.orange),
                               const SizedBox(width: 6),
                               Text(
-                                'Goods Returned: ₹${pu.returnedAmount.toStringAsFixed(0)} • Remaining: ₹${pu.remainingReturnable.toStringAsFixed(0)}',
+                                'Goods Returned: ${CurrencyHelper.symbol}${pu.returnedAmount.toStringAsFixed(0)} • Remaining: ${CurrencyHelper.symbol}${pu.remainingReturnable.toStringAsFixed(0)}',
                                 style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.orange),
                               ),
                             ],

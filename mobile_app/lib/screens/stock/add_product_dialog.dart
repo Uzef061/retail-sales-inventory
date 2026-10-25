@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../core/config/api_config.dart';
 import '../../core/services/api_client.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/currency_helper.dart';
 import '../../models/product.dart';
 
 class AddProductDialog extends StatefulWidget {
@@ -255,11 +256,11 @@ class _AddProductDialogState extends State<AddProductDialog> {
                       child: TextFormField(
                         controller: _costPriceController,
                         keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        decoration: const InputDecoration(
+                        decoration: InputDecoration(
                           labelText: 'Cost Price (CP) *',
-                          prefixText: '₹ ',
+                          prefixText: '${CurrencyHelper.symbol} ',
                           hintText: 'e.g. 50',
-                          border: OutlineInputBorder(),
+                          border: const OutlineInputBorder(),
                         ),
                         validator: (v) {
                           if (v == null || v.trim().isEmpty) return 'Enter CP';
@@ -274,11 +275,11 @@ class _AddProductDialogState extends State<AddProductDialog> {
                       child: TextFormField(
                         controller: _sellingPriceController,
                         keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        decoration: const InputDecoration(
+                        decoration: InputDecoration(
                           labelText: 'Selling Price (SP) *',
-                          prefixText: '₹ ',
+                          prefixText: '${CurrencyHelper.symbol} ',
                           hintText: 'e.g. 75',
-                          border: OutlineInputBorder(),
+                          border: const OutlineInputBorder(),
                         ),
                         validator: (v) {
                           if (v == null || v.trim().isEmpty) return 'Enter SP';

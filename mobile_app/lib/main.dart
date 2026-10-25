@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'core/services/auth_service.dart';
 import 'core/theme/app_theme.dart';
+import 'core/utils/currency_helper.dart';
 import 'screens/splash/splash_screen.dart';
 
 void main() async {
@@ -10,6 +11,8 @@ void main() async {
     FlutterError.presentError(details);
     debugPrint('Flutter Startup Error: ${details.exceptionAsString()}');
   };
+
+  await CurrencyHelper.init();
 
   final authService = AuthService();
   try {

@@ -3,6 +3,7 @@ import '../../core/services/api_client.dart';
 import '../../core/services/ledger_service.dart';
 import '../../core/services/payment_service.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/currency_helper.dart';
 import '../../models/customer.dart';
 import '../../models/ledger_entry.dart';
 import '../../models/supplier.dart';
@@ -239,7 +240,7 @@ class _ReceiveGiveDialogState extends State<ReceiveGiveDialog> {
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            '₹${_ledgerSummary.toReceive.toStringAsFixed(0)}',
+                            '${CurrencyHelper.symbol}${_ledgerSummary.toReceive.toStringAsFixed(0)}',
                             style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFF2E7D32)),
                           ),
                         ],
@@ -257,7 +258,7 @@ class _ReceiveGiveDialogState extends State<ReceiveGiveDialog> {
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            '₹${_ledgerSummary.toPay.toStringAsFixed(0)}',
+                            '${CurrencyHelper.symbol}${_ledgerSummary.toPay.toStringAsFixed(0)}',
                             style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFFD84315)),
                           ),
                         ],
@@ -326,8 +327,8 @@ class _ReceiveGiveDialogState extends State<ReceiveGiveDialog> {
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 decoration: InputDecoration(
-                  labelText: 'Amount (₹) *',
-                  prefixIcon: const Icon(Icons.currency_rupee, size: 20),
+                  labelText: 'Amount (${CurrencyHelper.symbol}) *',
+                  prefixIcon: const Icon(Icons.payments_outlined, size: 20),
                   hintText: '0.00',
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),

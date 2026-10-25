@@ -665,11 +665,11 @@ export default function Sales({ defaultTab = 'new' }) {
       <div className="page-header space-between flex-wrap">
         <div>
           <h1 className="page-title">
-            {activeTab === 'new' ? 'New Sale (POS Billing)' : 'Sales History & Records'}
+            {activeTab === 'new' ? 'New Sale' : 'Sales History & Records'}
           </h1>
           <p className="page-subtitle">
             {activeTab === 'new'
-              ? 'Create a new billing transaction with real-time cart & instant invoice generation'
+              ? 'Record a sales transaction with item details, custom pricing, and instant invoice generation'
               : 'View, filter, print receipts, and manage historical sales transactions'}
           </p>
         </div>
@@ -680,7 +680,7 @@ export default function Sales({ defaultTab = 'new' }) {
             className={`subnav-tab-btn ${activeTab === 'new' ? 'active' : ''}`}
             onClick={() => switchTab('new')}
           >
-            <ShoppingCart size={16} /> New Sale (POS)
+            <ShoppingCart size={16} /> New Sale
           </button>
           <button
             className={`subnav-tab-btn ${activeTab === 'history' ? 'active' : ''}`}
@@ -746,7 +746,7 @@ export default function Sales({ defaultTab = 'new' }) {
               className="btn btn-primary btn-sm"
               onClick={() => switchTab('new')}
             >
-              <ShoppingCart size={15} /> + New POS Sale
+              <ShoppingCart size={15} /> + New Sale
             </button>
           ) : (
             <button

@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import '../../core/config/api_config.dart';
 import '../../core/services/api_client.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/currency_helper.dart';
 import '../../models/supplier.dart';
 
 class SupplierLedgerScreen extends StatefulWidget {
@@ -111,10 +112,10 @@ class _SupplierLedgerScreenState extends State<SupplierLedgerScreen> {
                 TextField(
                   controller: amountController,
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  decoration: const InputDecoration(
-                    labelText: 'Amount (₹) *',
-                    prefixText: '₹ ',
-                    border: OutlineInputBorder(),
+                  decoration: InputDecoration(
+                    labelText: 'Amount (${CurrencyHelper.symbol}) *',
+                    prefixText: '${CurrencyHelper.symbol} ',
+                    border: const OutlineInputBorder(),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -186,7 +187,7 @@ class _SupplierLedgerScreenState extends State<SupplierLedgerScreen> {
                         if (mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
-                              content: Text('Payment of ₹${amt.toStringAsFixed(0)} recorded successfully.'),
+                              content: Text('Payment of ${CurrencyHelper.symbol}${amt.toStringAsFixed(0)} recorded successfully.'),
                               backgroundColor: AppTheme.success,
                             ),
                           );
@@ -416,7 +417,7 @@ class _SupplierLedgerScreenState extends State<SupplierLedgerScreen> {
                                       const Text('Purchases', style: TextStyle(fontSize: 11, color: AppTheme.textMuted)),
                                       const SizedBox(height: 2),
                                       Text(
-                                        '₹${totalPurchases.toStringAsFixed(0)}',
+                                        '${CurrencyHelper.symbol}${totalPurchases.toStringAsFixed(0)}',
                                         style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
                                       ),
                                     ],
@@ -438,7 +439,7 @@ class _SupplierLedgerScreenState extends State<SupplierLedgerScreen> {
                                       const Text('Payments', style: TextStyle(fontSize: 11, color: AppTheme.textMuted)),
                                       const SizedBox(height: 2),
                                       Text(
-                                        '₹${totalPayments.toStringAsFixed(0)}',
+                                        '${CurrencyHelper.symbol}${totalPayments.toStringAsFixed(0)}',
                                         style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppTheme.success),
                                       ),
                                     ],
@@ -460,7 +461,7 @@ class _SupplierLedgerScreenState extends State<SupplierLedgerScreen> {
                                       const Text('Returns', style: TextStyle(fontSize: 11, color: AppTheme.textMuted)),
                                       const SizedBox(height: 2),
                                       Text(
-                                        '₹${totalReturns.toStringAsFixed(0)}',
+                                        '${CurrencyHelper.symbol}${totalReturns.toStringAsFixed(0)}',
                                         style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.orange),
                                       ),
                                     ],
@@ -596,7 +597,7 @@ class _SupplierLedgerScreenState extends State<SupplierLedgerScreen> {
                                     crossAxisAlignment: CrossAxisAlignment.end,
                                     children: [
                                       Text(
-                                        '$sign ₹${amount.toStringAsFixed(0)}',
+                                        '$sign ${CurrencyHelper.symbol}${amount.toStringAsFixed(0)}',
                                         style: TextStyle(
                                           fontSize: 15,
                                           fontWeight: FontWeight.w800,
@@ -612,8 +613,8 @@ class _SupplierLedgerScreenState extends State<SupplierLedgerScreen> {
                                         ),
                                         child: Text(
                                           runningBal > 0
-                                              ? 'Bal: You owe ₹${runningBal.toStringAsFixed(0)}'
-                                              : (runningBal < 0 ? 'Bal: Advance ₹${(-runningBal).toStringAsFixed(0)}' : 'Bal: ₹0'),
+                                              ? 'Bal: You owe ${CurrencyHelper.symbol}${runningBal.toStringAsFixed(0)}'
+                                              : (runningBal < 0 ? 'Bal: Advance ${CurrencyHelper.symbol}${(-runningBal).toStringAsFixed(0)}' : 'Bal: ${CurrencyHelper.symbol}0'),
                                           style: TextStyle(
                                             fontSize: 11,
                                             fontWeight: FontWeight.w600,

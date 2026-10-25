@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../core/services/api_client.dart';
 import '../../core/services/sales_service.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/currency_helper.dart';
 import '../../models/sale.dart';
 
 class ReturnSaleDialog extends StatefulWidget {
@@ -119,7 +120,7 @@ class _ReturnSaleDialogState extends State<ReturnSaleDialog> {
     if (parsedAmount > maxReturnable) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Return amount cannot exceed remaining ₹${maxReturnable.toStringAsFixed(0)}'),
+          content: Text('Return amount cannot exceed remaining ${CurrencyHelper.symbol}${maxReturnable.toStringAsFixed(0)}'),
           backgroundColor: AppTheme.error,
         ),
       );
@@ -252,7 +253,7 @@ class _ReturnSaleDialogState extends State<ReturnSaleDialog> {
                       children: [
                         const Text('Original Sale Total', style: TextStyle(fontSize: 12, color: AppTheme.textMuted)),
                         Text(
-                          '₹${sale.grandTotal.toStringAsFixed(0)}',
+                          '${CurrencyHelper.symbol}${sale.grandTotal.toStringAsFixed(0)}',
                           style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.textPrimary),
                         ),
                       ],
@@ -264,7 +265,7 @@ class _ReturnSaleDialogState extends State<ReturnSaleDialog> {
                         children: [
                           const Text('Already Returned', style: TextStyle(fontSize: 12, color: AppTheme.warning)),
                           Text(
-                            '₹${sale.returnedAmount.toStringAsFixed(0)}',
+                            '${CurrencyHelper.symbol}${sale.returnedAmount.toStringAsFixed(0)}',
                             style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.warning),
                           ),
                         ],
@@ -276,7 +277,7 @@ class _ReturnSaleDialogState extends State<ReturnSaleDialog> {
                       children: [
                         const Text('Remaining Returnable', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppTheme.textPrimary)),
                         Text(
-                          '₹${maxReturnable.toStringAsFixed(0)}',
+                          '${CurrencyHelper.symbol}${maxReturnable.toStringAsFixed(0)}',
                           style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: AppTheme.primary),
                         ),
                       ],
@@ -290,7 +291,7 @@ class _ReturnSaleDialogState extends State<ReturnSaleDialog> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text('Return Amount (₹) *', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+                  Text('Return Amount (${CurrencyHelper.symbol}) *', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
                   TextButton.icon(
                     onPressed: _setFullReturn,
                     icon: const Icon(Icons.all_inclusive, size: 14),
@@ -305,10 +306,10 @@ class _ReturnSaleDialogState extends State<ReturnSaleDialog> {
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppTheme.primary),
                 decoration: InputDecoration(
-                  prefixText: '₹ ',
+                  prefixText: '${CurrencyHelper.symbol} ',
                   prefixStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppTheme.primary),
                   hintText: '0',
-                  helperText: 'Max allowable: ₹${maxReturnable.toStringAsFixed(0)}',
+                  helperText: 'Max allowable: ${CurrencyHelper.symbol}${maxReturnable.toStringAsFixed(0)}',
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                 ),
               ),
@@ -344,7 +345,7 @@ class _ReturnSaleDialogState extends State<ReturnSaleDialog> {
                                     style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
                                   ),
                                   Text(
-                                    'Sold: ${item.quantity} • ₹${item.sellingPrice.toStringAsFixed(0)} ea',
+                                    'Sold: ${item.quantity} • ${CurrencyHelper.symbol}${item.sellingPrice.toStringAsFixed(0)} ea',
                                     style: const TextStyle(fontSize: 11, color: AppTheme.textMuted),
                                   ),
                                 ],

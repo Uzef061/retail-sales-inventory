@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../core/services/auth_service.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/currency_helper.dart';
 import '../main_navigation_screen.dart';
 
 class OnboardingScreen extends StatefulWidget {
@@ -30,7 +31,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     'Other'
   ];
 
-  final List<String> _currencies = ['₹', '\$', '€', '£', '₨', 'AED'];
+  final List<String> _currencies = ['₹', 'रू', '\$', '€', '£', '₨', 'AED'];
 
   @override
   void initState() {
@@ -59,6 +60,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         currency: _selectedCurrency,
         ownerName: _authService.currentUser?.name,
       );
+      CurrencyHelper.setCurrency(_selectedCurrency);
     } catch (e) {
       debugPrint('[ONBOARDING] Complete error: $e');
     }

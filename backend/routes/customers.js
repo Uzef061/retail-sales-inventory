@@ -5,6 +5,7 @@ const { optionalProtect, protect, authorize } = require('../middleware/authMiddl
 
 router.get('/', optionalProtect, customerController.getCustomers);
 router.get('/:id/sales', optionalProtect, customerController.getCustomerHistory);
+router.get('/:id/ledger', optionalProtect, customerController.getCustomerLedger);
 router.post('/', protect, authorize('ADMIN', 'CASHIER'), customerController.createCustomer);
 router.put('/:id', protect, authorize('ADMIN', 'CASHIER'), customerController.updateCustomer);
 router.delete('/:id', protect, authorize('ADMIN'), customerController.deleteCustomer);

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../core/config/api_config.dart';
 import '../../core/services/api_client.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/currency_helper.dart';
 import '../../models/purchase.dart';
 
 class ReturnPurchaseDialog extends StatefulWidget {
@@ -50,7 +51,7 @@ class _ReturnPurchaseDialogState extends State<ReturnPurchaseDialog> {
 
     if (amt > widget.purchase.remainingReturnable) {
       setState(() => _errorMessage =
-          'Return amount (₹${amt.toStringAsFixed(0)}) cannot exceed remaining returnable (₹${widget.purchase.remainingReturnable.toStringAsFixed(0)}).');
+          'Return amount (${CurrencyHelper.symbol}${amt.toStringAsFixed(0)}) cannot exceed remaining returnable (${CurrencyHelper.symbol}${widget.purchase.remainingReturnable.toStringAsFixed(0)}).');
       return;
     }
 
@@ -76,8 +77,8 @@ class _ReturnPurchaseDialogState extends State<ReturnPurchaseDialog> {
         SnackBar(
           content: Text(
             _refundMode == 'REDUCE_PAYABLE'
-                ? 'Purchase return recorded! Supplier payable reduced by ₹${amt.toStringAsFixed(0)}.'
-                : 'Purchase return recorded! Cash refund of ₹${amt.toStringAsFixed(0)} recorded.',
+                ? 'Purchase return recorded! Supplier payable reduced by ${CurrencyHelper.symbol}${amt.toStringAsFixed(0)}.'
+                : 'Purchase return recorded! Cash refund of ${CurrencyHelper.symbol}${amt.toStringAsFixed(0)} recorded.',
           ),
           backgroundColor: AppTheme.success,
         ),
@@ -152,9 +153,9 @@ class _ReturnPurchaseDialogState extends State<ReturnPurchaseDialog> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text('Original Total: ₹${widget.purchase.totalCost.toStringAsFixed(0)}',
+                        Text('Original Total: ${CurrencyHelper.symbol}${widget.purchase.totalCost.toStringAsFixed(0)}',
                             style: const TextStyle(fontSize: 12, color: AppTheme.textMuted)),
-                        Text('Returnable: ₹${maxReturnable.toStringAsFixed(0)}',
+                        Text('Returnable: ${CurrencyHelper.symbol}${maxReturnable.toStringAsFixed(0)}',
                             style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.orange)),
                       ],
                     ),
@@ -180,9 +181,9 @@ class _ReturnPurchaseDialogState extends State<ReturnPurchaseDialog> {
                 controller: _amountController,
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 decoration: InputDecoration(
-                  labelText: 'Return Value (₹) *',
-                  prefixText: '₹ ',
-                  helperText: 'Maximum returnable: ₹${maxReturnable.toStringAsFixed(0)}',
+                  labelText: 'Return Value (${CurrencyHelper.symbol}) *',
+                  prefixText: '${CurrencyHelper.symbol} ',
+                  helperText: 'Maximum returnable: ${CurrencyHelper.symbol}${maxReturnable.toStringAsFixed(0)}',
                 ),
               ),
               const SizedBox(height: 16),

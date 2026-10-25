@@ -5,6 +5,7 @@ import '../../core/config/api_config.dart';
 import '../../core/services/api_client.dart';
 import '../../core/services/sales_service.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/currency_helper.dart';
 import '../../models/customer.dart';
 import '../../models/product.dart';
 import '../../models/sale.dart';
@@ -40,10 +41,7 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
   final ApiClient _apiClient = ApiClient();
   final SalesService _salesService = SalesService();
 
-  // Mode: 0 = Fast Quick Sale (3-field rapid entry), 1 = POS Itemized Cart
-  int _entryMode = 1;
-
-  // Quick Sale State
+  // Quick Sale State (Primary Sales Workflow)
   final TextEditingController _quickPhoneController = TextEditingController();
   final TextEditingController _quickNameController = TextEditingController();
   final TextEditingController _quickAmountController = TextEditingController();
@@ -53,25 +51,18 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
   bool _isSavingQuickSale = false;
   String? _quickSaleIdempotencyKey;
 
-  // Quick Sale Product-Based State
+  // Quick Sale Product-Based State (Deducts Stock, Custom Selling Prices)
   int _quickSaleType = 0; // 0 = Amount-Only (Fast), 1 = With Products (Deduct Stock)
   final List<CartEntry> _quickItems = [];
   Product? _quickSelectedProduct;
   final TextEditingController _quickProductQtyController = TextEditingController(text: '1');
   final TextEditingController _quickProductPriceController = TextEditingController();
 
-  // POS Itemized Cart State
+  // Active Catalog & Customer Cache for Quick Sale
   List<Product> _products = [];
   List<Customer> _customers = [];
-  Customer? _selectedCustomer;
-  final List<CartEntry> _cart = [];
-  String _paymentMethod = 'CASH';
-  final TextEditingController _discountController = TextEditingController(text: '0');
-  final TextEditingController _taxController = TextEditingController(text: '0');
-  final TextEditingController _productSearchController = TextEditingController();
   bool _isLoadingPos = true;
   String? _posError;
-  bool _isCheckingOut = false;
 
   // Sales History State
   List<Sale> _sales = [];
@@ -112,9 +103,6 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
     _quickNotesController.dispose();
     _quickProductQtyController.dispose();
     _quickProductPriceController.dispose();
-    _discountController.dispose();
-    _taxController.dispose();
-    _productSearchController.dispose();
     _historySearchController.dispose();
     super.dispose();
   }
@@ -164,9 +152,6 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
       setState(() {
         _products = prods;
         _customers = custs;
-        if (custs.isNotEmpty && _selectedCustomer == null) {
-          _selectedCustomer = custs.first;
-        }
         _isLoadingPos = false;
         _posError = null;
       });
@@ -223,7 +208,7 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
         builder: (ctx) => AlertDialog(
           title: const Text('Cannot Delete Sale'),
           content: Text(
-            'Sale "${s.invoiceNumber}" has active returns (₹${s.returnedAmount.toStringAsFixed(0)}).\n\n'
+            'Sale "${s.invoiceNumber}" has active returns (${CurrencyHelper.symbol}${s.returnedAmount.toStringAsFixed(0)}).\n\n'
             'Please delete or reverse the sales returns first before deleting this sale.',
           ),
           actions: [
@@ -252,7 +237,7 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
             const SizedBox(height: 12),
             if (s.items.isNotEmpty)
               Text('• Restores ${s.items.length} item(s) back into inventory.'),
-            Text('• Deducts ₹${s.grandTotal.toStringAsFixed(0)} from customer ledger & total sales.'),
+            Text('• Deducts ${CurrencyHelper.symbol}${s.grandTotal.toStringAsFixed(0)} from customer ledger & total sales.'),
             const SizedBox(height: 6),
             const Text(
               '• This action cannot be undone.',
@@ -502,159 +487,6 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
     }
   }
 
-  // --- POS Cart Logic ---
-  void _addToCart(Product product) {
-    if (product.stock <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('${product.name} is out of stock!'),
-          backgroundColor: AppTheme.error,
-        ),
-      );
-      return;
-    }
-
-    final existingIdx = _cart.indexWhere((e) => e.product.id == product.id);
-    if (existingIdx >= 0) {
-      if (_cart[existingIdx].quantity < product.stock) {
-        setState(() {
-          _cart[existingIdx].quantity++;
-        });
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Cannot add more. Available stock is ${product.stock}'),
-            backgroundColor: AppTheme.warning,
-          ),
-        );
-      }
-    } else {
-      setState(() {
-        _cart.add(CartEntry(
-          product: product,
-          quantity: 1,
-          customPrice: product.sellingPrice,
-        ));
-      });
-    }
-  }
-
-  void _removeFromCart(int index) {
-    setState(() {
-      _cart.removeAt(index);
-    });
-  }
-
-  void _changeQty(int index, int delta) {
-    setState(() {
-      final entry = _cart[index];
-      final newQty = entry.quantity + delta;
-      if (newQty <= 0) {
-        _cart.removeAt(index);
-      } else if (newQty <= entry.product.stock) {
-        entry.quantity = newQty;
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Max available stock is ${entry.product.stock}'),
-            backgroundColor: AppTheme.warning,
-          ),
-        );
-      }
-    });
-  }
-
-  double get _subtotal => _cart.fold(0.0, (sum, item) => sum + item.lineTotal);
-  double get _discount => double.tryParse(_discountController.text) ?? 0.0;
-  double get _tax => double.tryParse(_taxController.text) ?? 0.0;
-  double get _grandTotal => (_subtotal - _discount + _tax).clamp(0.0, double.infinity);
-
-  Future<void> _handlePosCheckout() async {
-    if (_isCheckingOut) return;
-
-    if (_cart.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Cart is empty. Add products to proceed.')),
-      );
-      return;
-    }
-
-    if (_selectedCustomer == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select or create a customer profile.')),
-      );
-      return;
-    }
-
-    setState(() => _isCheckingOut = true);
-
-    final itemsPayload = _cart.map((entry) => {
-      'product': entry.product.id,
-      'quantity': entry.quantity,
-      'sellingPrice': entry.customPrice,
-      'costPrice': entry.product.costPrice,
-    }).toList();
-
-    final payload = {
-      'customer': _selectedCustomer!.id,
-      'items': itemsPayload,
-      'discount': _discount,
-      'tax': _tax,
-      'paymentMethod': _paymentMethod,
-      'amountReceived': _grandTotal,
-      'idempotencyKey': 'pos_${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(999999)}',
-    };
-
-    try {
-      final res = await _apiClient.post(ApiConfig.sales, payload);
-      final createdSale = Sale.fromJson(res as Map<String, dynamic>);
-
-      setState(() {
-        _cart.clear();
-        _discountController.text = '0';
-        _taxController.text = '0';
-      });
-
-      _loadPosData();
-      _loadSalesHistory();
-
-      if (mounted) {
-        showDialog(
-          context: context,
-          builder: (_) => SaleReceiptDialog(
-            sale: createdSale,
-            onReturnProcessed: _loadSalesHistory,
-            onSaleDeleted: () {
-              _loadSalesHistory();
-              _loadPosData();
-            },
-          ),
-        );
-      }
-    } on ApiException catch (e) {
-      if (mounted) {
-        _loadPosData();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.isConflict
-                ? '⚠️ ${e.message}'
-                : e.message),
-            backgroundColor: AppTheme.error,
-            duration: const Duration(seconds: 4),
-          ),
-        );
-      }
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to complete sale.'), backgroundColor: AppTheme.error),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isCheckingOut = false);
-    }
-  }
-
   void _openReturnDialog(Sale sale) async {
     final result = await showDialog<bool>(
       context: context,
@@ -699,13 +531,13 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   const Text('New Sale'),
-                  if (_cart.isNotEmpty) ...[
+                  if (_quickItems.isNotEmpty) ...[
                     const SizedBox(width: 6),
                     CircleAvatar(
                       radius: 10,
                       backgroundColor: AppTheme.primary,
                       child: Text(
-                        '${_cart.length}',
+                        '${_quickItems.length}',
                         style: const TextStyle(fontSize: 11, color: Colors.white, fontWeight: FontWeight.bold),
                       ),
                     ),
@@ -758,51 +590,8 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
       );
     }
 
-    return Column(
-      children: [
-        // Mode Switcher Banner
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          color: AppTheme.surface,
-          child: Row(
-            children: [
-              Expanded(
-                child: SegmentedButton<int>(
-                  segments: const [
-                    ButtonSegment<int>(
-                      value: 1,
-                      label: Text('🛒 POS Items Cart'),
-                      icon: Icon(Icons.shopping_cart_outlined, size: 16),
-                    ),
-                    ButtonSegment<int>(
-                      value: 0,
-                      label: Text('⚡ Fast Quick Sale'),
-                      icon: Icon(Icons.flash_on, size: 16),
-                    ),
-                  ],
-                  selected: {_entryMode},
-                  onSelectionChanged: (Set<int> newSelection) {
-                    setState(() {
-                      _entryMode = newSelection.first;
-                    });
-                  },
-                  style: const ButtonStyle(
-                    visualDensity: VisualDensity.compact,
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const Divider(height: 1),
-
-        // Mode content
-        Expanded(
-          child: _entryMode == 0 ? _buildFastQuickSaleView() : _buildPosView(),
-        ),
-      ],
-    );
+    // Quick Sale is the primary, streamlined sales workflow
+    return _buildFastQuickSaleView();
   }
 
   // ==========================================
@@ -986,9 +775,9 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
 
                   if (_quickSaleType == 0) ...[
                     // Amount-Only Rapid Sale Mode
-                    const Text(
-                      'Enter Sale Amount (₹) *',
-                      style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12, color: AppTheme.textSecondary),
+                    Text(
+                      'Enter Sale Amount (${CurrencyHelper.symbol}) *',
+                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12, color: AppTheme.textSecondary),
                     ),
                     const SizedBox(height: 6),
                     TextField(
@@ -996,7 +785,7 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
                       keyboardType: const TextInputType.numberWithOptions(decimal: true),
                       style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: AppTheme.primary),
                       decoration: InputDecoration(
-                        prefixText: '₹ ',
+                        prefixText: '${CurrencyHelper.symbol} ',
                         prefixStyle: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: AppTheme.primary),
                         hintText: '0',
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
@@ -1012,7 +801,7 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
                       runSpacing: 6,
                       children: [100, 200, 500, 1000, 2000, 5000].map((quickVal) {
                         return ActionChip(
-                          label: Text('+₹$quickVal', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+                          label: Text('+${CurrencyHelper.symbol}$quickVal', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
                           onPressed: () {
                             final current = double.tryParse(_quickAmountController.text.trim()) ?? 0.0;
                             final newVal = current + quickVal;
@@ -1135,7 +924,7 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
                                       Text(
-                                        'Price (₹) [Suggested: ₹${_quickSelectedProduct!.sellingPrice.toStringAsFixed(0)}]',
+                                        'Price (${CurrencyHelper.symbol}) [Suggested: ${CurrencyHelper.symbol}${_quickSelectedProduct!.sellingPrice.toStringAsFixed(0)}]',
                                         style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary, fontWeight: FontWeight.w600),
                                       ),
                                       const SizedBox(height: 4),
@@ -1143,7 +932,7 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
                                         controller: _quickProductPriceController,
                                         keyboardType: const TextInputType.numberWithOptions(decimal: true),
                                         decoration: InputDecoration(
-                                          prefixText: '₹ ',
+                                          prefixText: '${CurrencyHelper.symbol} ',
                                           border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                                           contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                                         ),
@@ -1159,7 +948,7 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
                                 Text(
-                                  'Line Total: ₹${((int.tryParse(_quickProductQtyController.text.trim()) ?? 0) * (double.tryParse(_quickProductPriceController.text.trim()) ?? _quickSelectedProduct!.sellingPrice)).toStringAsFixed(0)}',
+                                  'Line Total: ${CurrencyHelper.symbol}${((int.tryParse(_quickProductQtyController.text.trim()) ?? 0) * (double.tryParse(_quickProductPriceController.text.trim()) ?? _quickSelectedProduct!.sellingPrice)).toStringAsFixed(0)}',
                                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppTheme.primary),
                                 ),
                                 ElevatedButton.icon(
@@ -1224,14 +1013,14 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
                                   children: [
                                     Text(entry.product.name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
                                     Text(
-                                      '${entry.quantity} x ₹${entry.customPrice.toStringAsFixed(0)} (Stock: ${entry.product.stock})',
+                                      '${entry.quantity} x ${CurrencyHelper.symbol}${entry.customPrice.toStringAsFixed(0)} (Stock: ${entry.product.stock})',
                                       style: const TextStyle(fontSize: 11, color: AppTheme.textMuted),
                                     ),
                                   ],
                                 ),
                               ),
                               Text(
-                                '₹${entry.lineTotal.toStringAsFixed(0)}',
+                                '${CurrencyHelper.symbol}${entry.lineTotal.toStringAsFixed(0)}',
                                 style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppTheme.textPrimary),
                               ),
                               IconButton(
@@ -1355,7 +1144,7 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
                 label: Text(
                   _isSavingQuickSale
                       ? 'Saving Sale...'
-                      : 'Complete Sale • ₹${calculatedQuickTotal.toStringAsFixed(0)}',
+                      : 'Complete Sale • ${CurrencyHelper.symbol}${calculatedQuickTotal.toStringAsFixed(0)}',
                   style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
                 ),
                 style: ElevatedButton.styleFrom(
@@ -1447,7 +1236,7 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
                                 ),
                                 title: Text(p.name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
                                 subtitle: Text(
-                                  'Price: ₹${p.sellingPrice.toStringAsFixed(0)} • Stock: ${p.stock}',
+                                  'Price: ${CurrencyHelper.symbol}${p.sellingPrice.toStringAsFixed(0)} • Stock: ${p.stock}',
                                   style: TextStyle(
                                     fontSize: 12,
                                     color: isOutOfStock ? AppTheme.error : AppTheme.textSecondary,
@@ -1463,7 +1252,7 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
                                         child: const Text('OUT OF STOCK', style: TextStyle(fontSize: 10, color: AppTheme.error, fontWeight: FontWeight.bold)),
                                       )
                                     : Text(
-                                        '₹${p.sellingPrice.toStringAsFixed(0)}',
+                                        '${CurrencyHelper.symbol}${p.sellingPrice.toStringAsFixed(0)}',
                                         style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppTheme.primary),
                                       ),
                                 onTap: () {
@@ -1525,307 +1314,6 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
           ),
         );
       },
-    );
-  }
-
-  // ==========================================
-  // POS VIEW (MULTI-ITEM CATALOG)
-  // ==========================================
-  Widget _buildPosView() {
-    final query = _productSearchController.text.toLowerCase().trim();
-    final availableProducts = _products.where((p) {
-      if (!p.isActive) return false;
-      if (query.isEmpty) return true;
-      final nameMatches = p.name.toLowerCase().contains(query);
-      final categoryMatches = p.category.toLowerCase().contains(query);
-      final skuMatches = p.sku != null && p.sku!.toLowerCase().contains(query);
-      return nameMatches || categoryMatches || skuMatches;
-    }).toList();
-
-    return Column(
-      children: [
-        // Customer Selector & Search Bar
-        Container(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-          color: AppTheme.surface,
-          child: Column(
-            children: [
-              if (_customers.isNotEmpty)
-                DropdownButtonFormField<Customer>(
-                  initialValue: _selectedCustomer,
-                  decoration: const InputDecoration(
-                    labelText: 'Customer *',
-                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                    prefixIcon: Icon(Icons.person, size: 20),
-                  ),
-                  items: _customers.map((c) {
-                    return DropdownMenuItem<Customer>(
-                      value: c,
-                      child: Text('${c.name} (${c.phone})', style: const TextStyle(fontSize: 13)),
-                    );
-                  }).toList(),
-                  onChanged: (val) => setState(() => _selectedCustomer = val),
-                ),
-              const SizedBox(height: 8),
-
-              // Product Search
-              TextField(
-                controller: _productSearchController,
-                decoration: InputDecoration(
-                  hintText: 'Search items to add to cart...',
-                  prefixIcon: const Icon(Icons.search, size: 20),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                  suffixIcon: _productSearchController.text.isNotEmpty
-                      ? IconButton(
-                          icon: const Icon(Icons.clear, size: 18),
-                          onPressed: () => setState(() => _productSearchController.clear()),
-                        )
-                      : null,
-                ),
-                onChanged: (_) => setState(() {}),
-              ),
-            ],
-          ),
-        ),
-
-        // Products Grid / Quick Select
-        Expanded(
-          flex: 5,
-          child: RefreshIndicator(
-            onRefresh: _loadPosData,
-            color: AppTheme.primary,
-            child: availableProducts.isEmpty
-                ? ListView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    children: [
-                      SizedBox(
-                        height: 200,
-                        child: Center(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.inventory_2_outlined, size: 40, color: AppTheme.textMuted),
-                              const SizedBox(height: 10),
-                              Text(
-                                _productSearchController.text.trim().isNotEmpty
-                                    ? 'No products matching "${_productSearchController.text.trim()}"'
-                                    : 'No products available',
-                                style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13),
-                              ),
-                              if (_productSearchController.text.trim().isNotEmpty) ...[
-                                const SizedBox(height: 8),
-                                TextButton.icon(
-                                  onPressed: () => setState(() => _productSearchController.clear()),
-                                  icon: const Icon(Icons.clear, size: 16),
-                                  label: const Text('Clear Search'),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                  )
-                : ListView.separated(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.all(12),
-                    itemCount: availableProducts.length,
-                    separatorBuilder: (_, _) => const SizedBox(height: 8),
-                    itemBuilder: (context, idx) {
-                      final p = availableProducts[idx];
-                      final inCart = _cart.any((c) => c.product.id == p.id);
-
-                      return Card(
-                        child: ListTile(
-                          dense: true,
-                          title: Text(p.name, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
-                          subtitle: Text(
-                            'Stock: ${p.stock} • ₹${p.sellingPrice.toStringAsFixed(0)}${p.sku != null && p.sku!.isNotEmpty ? " • SKU: ${p.sku}" : ""}',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: p.isOutOfStock ? AppTheme.error : AppTheme.textSecondary,
-                              fontWeight: p.isOutOfStock ? FontWeight.w600 : FontWeight.normal,
-                            ),
-                          ),
-                          trailing: ElevatedButton.icon(
-                            onPressed: p.stock <= 0 ? null : () => _addToCart(p),
-                            icon: Icon(inCart ? Icons.add_circle : Icons.add_shopping_cart, size: 16),
-                            label: Text(inCart ? 'Add More' : 'Add', style: const TextStyle(fontSize: 12)),
-                            style: ElevatedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                              minimumSize: Size.zero,
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-          ),
-        ),
-
-        // Cart Section
-        Container(
-          constraints: const BoxConstraints(maxHeight: 280),
-          decoration: BoxDecoration(
-            color: AppTheme.surface,
-            boxShadow: [
-              BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 10, offset: const Offset(0, -3)),
-            ],
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Cart header
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      'Cart Items (${_cart.length})',
-                      style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
-                    ),
-                    if (_cart.isNotEmpty)
-                      TextButton(
-                        onPressed: () => setState(() => _cart.clear()),
-                        child: const Text('Clear Cart', style: TextStyle(fontSize: 12, color: AppTheme.error)),
-                      ),
-                  ],
-                ),
-              ),
-              const Divider(height: 1),
-
-              // Cart line items
-              if (_cart.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 20),
-                  child: Text('Tap + on any product above to add to cart', style: TextStyle(color: AppTheme.textMuted, fontSize: 13)),
-                )
-              else
-                Flexible(
-                  child: ListView.separated(
-                    shrinkWrap: true,
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    itemCount: _cart.length,
-                    separatorBuilder: (_, _) => const Divider(height: 1),
-                    itemBuilder: (context, idx) {
-                      final item = _cart[idx];
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 6),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              flex: 4,
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(item.product.name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-                                  Text('₹${item.customPrice.toStringAsFixed(0)} each', style: const TextStyle(fontSize: 11, color: AppTheme.textMuted)),
-                                ],
-                              ),
-                            ),
-                            // Stepper
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                IconButton(
-                                  icon: const Icon(Icons.remove_circle_outline, size: 20),
-                                  onPressed: () => _changeQty(idx, -1),
-                                  padding: EdgeInsets.zero,
-                                  constraints: const BoxConstraints(),
-                                ),
-                                Padding(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                                  child: Text('${item.quantity}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
-                                ),
-                                IconButton(
-                                  icon: const Icon(Icons.add_circle_outline, size: 20, color: AppTheme.primary),
-                                  onPressed: () => _changeQty(idx, 1),
-                                  padding: EdgeInsets.zero,
-                                  constraints: const BoxConstraints(),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(width: 8),
-                            // Total
-                            SizedBox(
-                              width: 60,
-                              child: Text(
-                                '₹${item.lineTotal.toStringAsFixed(0)}',
-                                textAlign: TextAlign.end,
-                                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
-                              ),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.close, size: 16, color: AppTheme.textMuted),
-                              onPressed: () => _removeFromCart(idx),
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(),
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
-                ),
-
-              // Payment options & Checkout button
-              if (_cart.isNotEmpty) ...[
-                const Divider(height: 1),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 6, 16, 12),
-                  child: Column(
-                    children: [
-                      // Payment Mode Chips
-                      Row(
-                        children: ['CASH', 'CARD', 'UPI', 'OTHER'].map((mode) {
-                          final isSel = _paymentMethod == mode;
-                          return Padding(
-                            padding: const EdgeInsets.only(right: 6),
-                            child: ChoiceChip(
-                              label: Text(mode, style: TextStyle(fontSize: 11, color: isSel ? Colors.white : AppTheme.textPrimary)),
-                              selected: isSel,
-                              selectedColor: AppTheme.primary,
-                              onSelected: (_) => setState(() => _paymentMethod = mode),
-                              showCheckmark: false,
-                            ),
-                          );
-                        }).toList(),
-                      ),
-                      const SizedBox(height: 8),
-
-                      // Grand total and checkout
-                      Row(
-                        children: [
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text('Total Amount', style: TextStyle(fontSize: 11, color: AppTheme.textMuted)),
-                              Text(
-                                '₹${_grandTotal.toStringAsFixed(0)}',
-                                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: AppTheme.primary),
-                              ),
-                            ],
-                          ),
-                          const Spacer(),
-                          ElevatedButton.icon(
-                            onPressed: _isCheckingOut ? null : _handlePosCheckout,
-                            icon: _isCheckingOut
-                                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                                : const Icon(Icons.check, size: 18),
-                            label: const Text('Complete Sale'),
-                            style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12)),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ],
     );
   }
 
@@ -2004,12 +1492,12 @@ class _SalesScreenState extends State<SalesScreen> with SingleTickerProviderStat
                                       crossAxisAlignment: CrossAxisAlignment.end,
                                       children: [
                                         Text(
-                                          '₹${s.grandTotal.toStringAsFixed(0)}',
+                                          '${CurrencyHelper.symbol}${s.grandTotal.toStringAsFixed(0)}',
                                           style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppTheme.textPrimary),
                                         ),
                                         if (s.returnedAmount > 0)
                                           Text(
-                                            'Ret: -₹${s.returnedAmount.toStringAsFixed(0)}',
+                                            'Ret: -${CurrencyHelper.symbol}${s.returnedAmount.toStringAsFixed(0)}',
                                             style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppTheme.warning),
                                           ),
                                       ],
