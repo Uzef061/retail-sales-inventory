@@ -14,14 +14,41 @@ workflows:
         - ~/.gradle/wrapper
     working_directory: mobile_app
     scripts:
+      - name: Environment and Directory Diagnostics
+        script: |
+          echo "==================== RUNTIME DIAGNOSTICS ===================="
+          echo "Current working directory (pwd): $(pwd)"
+          echo "CM_BUILD_DIR: $CM_BUILD_DIR"
+          echo "FLUTTER_ROOT: $FLUTTER_ROOT"
+          echo "Listing root directory ($CM_BUILD_DIR):"
+          ls -la "$CM_BUILD_DIR" 2>/dev/null || ls -la
+          echo "Listing current directory:"
+          ls -la
+          if [ -d "$CM_BUILD_DIR/mobile_app" ]; then
+            echo "Listing $CM_BUILD_DIR/mobile_app:"
+            ls -la "$CM_BUILD_DIR/mobile_app"
+          fi
+          echo "Checking pubspec.yaml existence:"
+          if [ -f "pubspec.yaml" ]; then
+            echo "-> Found pubspec.yaml in current directory: $(pwd)/pubspec.yaml"
+          elif [ -f "mobile_app/pubspec.yaml" ]; then
+            echo "-> Found pubspec.yaml in: $(pwd)/mobile_app/pubspec.yaml"
+          elif [ -n "$CM_BUILD_DIR" ] && [ -f "$CM_BUILD_DIR/mobile_app/pubspec.yaml" ]; then
+            echo "-> Found pubspec.yaml in: $CM_BUILD_DIR/mobile_app/pubspec.yaml"
+          else
+            echo "-> WARNING: pubspec.yaml not found in any expected location!"
+          fi
+          echo "============================================================="
       - name: Set up local.properties
         script: |
-          if [ ! -f "pubspec.yaml" ]; then
-            if [ -f "mobile_app/pubspec.yaml" ]; then
-              cd mobile_app
-            elif [ -f "../pubspec.yaml" ]; then
-              cd ..
-            fi
+          if [ -f "pubspec.yaml" ]; then
+            :
+          elif [ -f "mobile_app/pubspec.yaml" ]; then
+            cd mobile_app
+          elif [ -n "$CM_BUILD_DIR" ] && [ -f "$CM_BUILD_DIR/mobile_app/pubspec.yaml" ]; then
+            cd "$CM_BUILD_DIR/mobile_app"
+          elif [ -f "../pubspec.yaml" ]; then
+            cd ..
           fi
           if [ -d "android" ]; then
             echo "flutter.sdk=$FLUTTER_ROOT" > "android/local.properties"
@@ -32,42 +59,50 @@ workflows:
           fi
       - name: Get Flutter packages
         script: |
-          if [ ! -f "pubspec.yaml" ]; then
-            if [ -f "mobile_app/pubspec.yaml" ]; then
-              cd mobile_app
-            elif [ -f "../pubspec.yaml" ]; then
-              cd ..
-            fi
+          if [ -f "pubspec.yaml" ]; then
+            :
+          elif [ -f "mobile_app/pubspec.yaml" ]; then
+            cd mobile_app
+          elif [ -n "$CM_BUILD_DIR" ] && [ -f "$CM_BUILD_DIR/mobile_app/pubspec.yaml" ]; then
+            cd "$CM_BUILD_DIR/mobile_app"
+          elif [ -f "../pubspec.yaml" ]; then
+            cd ..
           fi
           flutter pub get
       - name: Run code analysis
         script: |
-          if [ ! -f "pubspec.yaml" ]; then
-            if [ -f "mobile_app/pubspec.yaml" ]; then
-              cd mobile_app
-            elif [ -f "../pubspec.yaml" ]; then
-              cd ..
-            fi
+          if [ -f "pubspec.yaml" ]; then
+            :
+          elif [ -f "mobile_app/pubspec.yaml" ]; then
+            cd mobile_app
+          elif [ -n "$CM_BUILD_DIR" ] && [ -f "$CM_BUILD_DIR/mobile_app/pubspec.yaml" ]; then
+            cd "$CM_BUILD_DIR/mobile_app"
+          elif [ -f "../pubspec.yaml" ]; then
+            cd ..
           fi
           flutter analyze
       - name: Run unit tests
         script: |
-          if [ ! -f "pubspec.yaml" ]; then
-            if [ -f "mobile_app/pubspec.yaml" ]; then
-              cd mobile_app
-            elif [ -f "../pubspec.yaml" ]; then
-              cd ..
-            fi
+          if [ -f "pubspec.yaml" ]; then
+            :
+          elif [ -f "mobile_app/pubspec.yaml" ]; then
+            cd mobile_app
+          elif [ -n "$CM_BUILD_DIR" ] && [ -f "$CM_BUILD_DIR/mobile_app/pubspec.yaml" ]; then
+            cd "$CM_BUILD_DIR/mobile_app"
+          elif [ -f "../pubspec.yaml" ]; then
+            cd ..
           fi
           flutter test
       - name: Build Android APK
         script: |
-          if [ ! -f "pubspec.yaml" ]; then
-            if [ -f "mobile_app/pubspec.yaml" ]; then
-              cd mobile_app
-            elif [ -f "../pubspec.yaml" ]; then
-              cd ..
-            fi
+          if [ -f "pubspec.yaml" ]; then
+            :
+          elif [ -f "mobile_app/pubspec.yaml" ]; then
+            cd mobile_app
+          elif [ -n "$CM_BUILD_DIR" ] && [ -f "$CM_BUILD_DIR/mobile_app/pubspec.yaml" ]; then
+            cd "$CM_BUILD_DIR/mobile_app"
+          elif [ -f "../pubspec.yaml" ]; then
+            cd ..
           fi
           if [ -z "$GOOGLE_SERVER_CLIENT_ID" ]; then
             echo "ERROR: GOOGLE_SERVER_CLIENT_ID environment variable is missing or empty."
