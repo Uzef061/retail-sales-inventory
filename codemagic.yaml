@@ -7,22 +7,68 @@ workflows:
       flutter: stable
       groups:
         - aa
+    cache:
+      cache_paths:
+        - ~/.pub-cache
+        - ~/.gradle/caches
+        - ~/.gradle/wrapper
     working_directory: mobile_app
     scripts:
       - name: Set up local.properties
         script: |
-          echo "flutter.sdk=$FLUTTER_ROOT" > "$CM_BUILD_DIR/mobile_app/android/local.properties"
+          if [ ! -f "pubspec.yaml" ]; then
+            if [ -f "mobile_app/pubspec.yaml" ]; then
+              cd mobile_app
+            elif [ -f "../pubspec.yaml" ]; then
+              cd ..
+            fi
+          fi
+          if [ -d "android" ]; then
+            echo "flutter.sdk=$FLUTTER_ROOT" > "android/local.properties"
+          elif [ -d "mobile_app/android" ]; then
+            echo "flutter.sdk=$FLUTTER_ROOT" > "mobile_app/android/local.properties"
+          elif [ -n "$CM_BUILD_DIR" ] && [ -d "$CM_BUILD_DIR/mobile_app/android" ]; then
+            echo "flutter.sdk=$FLUTTER_ROOT" > "$CM_BUILD_DIR/mobile_app/android/local.properties"
+          fi
       - name: Get Flutter packages
         script: |
-          flutter packages pub get
+          if [ ! -f "pubspec.yaml" ]; then
+            if [ -f "mobile_app/pubspec.yaml" ]; then
+              cd mobile_app
+            elif [ -f "../pubspec.yaml" ]; then
+              cd ..
+            fi
+          fi
+          flutter pub get
       - name: Run code analysis
         script: |
+          if [ ! -f "pubspec.yaml" ]; then
+            if [ -f "mobile_app/pubspec.yaml" ]; then
+              cd mobile_app
+            elif [ -f "../pubspec.yaml" ]; then
+              cd ..
+            fi
+          fi
           flutter analyze
       - name: Run unit tests
         script: |
+          if [ ! -f "pubspec.yaml" ]; then
+            if [ -f "mobile_app/pubspec.yaml" ]; then
+              cd mobile_app
+            elif [ -f "../pubspec.yaml" ]; then
+              cd ..
+            fi
+          fi
           flutter test
       - name: Build Android APK
         script: |
+          if [ ! -f "pubspec.yaml" ]; then
+            if [ -f "mobile_app/pubspec.yaml" ]; then
+              cd mobile_app
+            elif [ -f "../pubspec.yaml" ]; then
+              cd ..
+            fi
+          fi
           if [ -z "$GOOGLE_SERVER_CLIENT_ID" ]; then
             echo "ERROR: GOOGLE_SERVER_CLIENT_ID environment variable is missing or empty."
             echo "Please configure GOOGLE_SERVER_CLIENT_ID in your Codemagic workflow environment variables."
@@ -33,6 +79,9 @@ workflows:
             --dart-define=GOOGLE_SERVER_CLIENT_ID="$GOOGLE_SERVER_CLIENT_ID"
 
           APK_PATH="build/app/outputs/flutter-apk/app-release.apk"
+          if [ ! -f "$APK_PATH" ] && [ -f "mobile_app/build/app/outputs/flutter-apk/app-release.apk" ]; then
+            APK_PATH="mobile_app/build/app/outputs/flutter-apk/app-release.apk"
+          fi
           if [ ! -f "$APK_PATH" ]; then
             echo "ERROR: Release APK not found at: $APK_PATH"
             exit 1
