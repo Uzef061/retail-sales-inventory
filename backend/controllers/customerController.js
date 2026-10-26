@@ -136,7 +136,7 @@ exports.getCustomers = async (req, res) => {
 // POST /api/customers
 exports.createCustomer = async (req, res) => {
   try {
-    const { name, phone, email, address } = req.body;
+    const { clientUuid, name, phone, email, address } = req.body;
 
     if (!name || !name.trim()) {
       return res.status(400).json({ success: false, message: 'Customer name is required.', errorCode: 'MISSING_NAME' });
@@ -146,6 +146,17 @@ exports.createCustomer = async (req, res) => {
     }
     if (email && email.trim() && !EMAIL_REGEX.test(email.trim())) {
       return res.status(400).json({ success: false, message: 'Please provide a valid email address.', errorCode: 'INVALID_EMAIL' });
+    }
+
+    // Idempotency check by clientUuid
+    if (clientUuid) {
+      const existingByUuid = await Customer.findOne({
+        userId: req.user?._id,
+        clientUuid
+      });
+      if (existingByUuid) {
+        return res.status(200).json(existingByUuid);
+      }
     }
 
     // Check for existing customer by phone within tenant to prevent duplicates
@@ -163,6 +174,7 @@ exports.createCustomer = async (req, res) => {
 
     const customer = new Customer({
       userId: req.user?._id,
+      clientUuid: clientUuid || undefined,
       businessId: req.user?.businessId,
       name: name.trim(),
       phone: phone.trim(),
@@ -174,6 +186,15 @@ exports.createCustomer = async (req, res) => {
     const savedCustomer = await customer.save();
     res.status(201).json(savedCustomer);
   } catch (error) {
+    if (error.code === 11000 && req.body.clientUuid) {
+      const existing = await Customer.findOne({
+        userId: req.user?._id,
+        clientUuid: req.body.clientUuid
+      });
+      if (existing) {
+        return res.status(200).json(existing);
+      }
+    }
     res.status(500).json({ success: false, message: 'Error creating customer', error: error.message });
   }
 };

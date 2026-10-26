@@ -20,6 +20,8 @@ const purchaseReturnSchema = new mongoose.Schema(
       ref: 'User',
       index: true
     },
+    clientUuid: { type: String, sparse: true, index: true },
+    purchaseClientUuid: { type: String, sparse: true, index: true },
     purchaseId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Purchase',
@@ -56,5 +58,13 @@ const purchaseReturnSchema = new mongoose.Schema(
 );
 
 purchaseReturnSchema.index({ userId: 1, idempotencyKey: 1 }, { unique: true, sparse: true });
+purchaseReturnSchema.index(
+  { userId: 1, clientUuid: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { clientUuid: { $type: 'string' } },
+    name: 'userId_1_clientUuid_1_v2'
+  }
+);
 
 module.exports = mongoose.model('PurchaseReturn', purchaseReturnSchema);

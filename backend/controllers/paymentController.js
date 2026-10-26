@@ -94,6 +94,7 @@ exports.getPaymentsSummary = async (req, res) => {
 exports.createPayment = async (req, res) => {
   try {
     const {
+      clientUuid,
       type,
       partyType,
       partyId,
@@ -122,12 +123,22 @@ exports.createPayment = async (req, res) => {
     const effectivePartyType = (partyType || (type === 'RECEIVE' ? 'CUSTOMER' : 'SUPPLIER')).toUpperCase();
 
     // Verify tenant ownership of linked party if partyId is provided
-    if (partyId && mongoose.Types.ObjectId.isValid(partyId)) {
+    let resolvedPartyId = undefined;
+    if (partyId) {
       let partyDoc = null;
-      if (effectivePartyType === 'SUPPLIER') {
-        partyDoc = await Supplier.findById(partyId);
-      } else if (effectivePartyType === 'CUSTOMER') {
-        partyDoc = await Customer.findById(partyId);
+      if (mongoose.Types.ObjectId.isValid(partyId)) {
+        if (effectivePartyType === 'SUPPLIER') {
+          partyDoc = await Supplier.findById(partyId);
+        } else if (effectivePartyType === 'CUSTOMER') {
+          partyDoc = await Customer.findById(partyId);
+        }
+      }
+      if (!partyDoc) {
+        if (effectivePartyType === 'SUPPLIER') {
+          partyDoc = await Supplier.findOne({ ...getTenantQuery(req), clientUuid: partyId });
+        } else if (effectivePartyType === 'CUSTOMER') {
+          partyDoc = await Customer.findOne({ ...getTenantQuery(req), clientUuid: partyId });
+        }
       }
       if (partyDoc && !hasTenantAccess(partyDoc, req)) {
         return res.status(403).json({
@@ -136,13 +147,19 @@ exports.createPayment = async (req, res) => {
           errorCode: 'FORBIDDEN_PARTY'
         });
       }
+      if (partyDoc) {
+        resolvedPartyId = partyDoc._id;
+      }
     }
 
     // Idempotency check to prevent duplicate accidental submissions
-    if (idempotencyKey) {
+    if (clientUuid || idempotencyKey) {
+      const orConditions = [];
+      if (clientUuid) orConditions.push({ clientUuid });
+      if (idempotencyKey) orConditions.push({ idempotencyKey });
       const existing = await PaymentTransaction.findOne({
-        idempotencyKey,
-        ...getTenantQuery(req)
+        ...getTenantQuery(req),
+        $or: orConditions
       });
       if (existing) {
         return res.status(200).json(existing);
@@ -151,10 +168,11 @@ exports.createPayment = async (req, res) => {
 
     const payment = new PaymentTransaction({
       userId: req.user?._id,
+      clientUuid: clientUuid || undefined,
       businessId: req.user?.businessId,
       type: type.toUpperCase(),
       partyType: effectivePartyType,
-      partyId: partyId || undefined,
+      partyId: resolvedPartyId,
       partyModel: effectivePartyType === 'SUPPLIER' ? 'Supplier' : (effectivePartyType === 'CUSTOMER' ? 'Customer' : undefined),
       partyName: partyName.trim(),
       amount: numAmount,
@@ -169,13 +187,24 @@ exports.createPayment = async (req, res) => {
     const savedPayment = await payment.save();
     res.status(201).json(savedPayment);
   } catch (error) {
-    if (error.code === 11000 && req.body.idempotencyKey) {
-      const existing = await PaymentTransaction.findOne({
-        idempotencyKey: req.body.idempotencyKey,
-        ...getTenantQuery(req)
-      });
-      if (existing) {
-        return res.status(200).json(existing);
+    if (error.code === 11000) {
+      if (req.body.clientUuid) {
+        const existing = await PaymentTransaction.findOne({
+          clientUuid: req.body.clientUuid,
+          ...getTenantQuery(req)
+        });
+        if (existing) {
+          return res.status(200).json(existing);
+        }
+      }
+      if (req.body.idempotencyKey) {
+        const existing = await PaymentTransaction.findOne({
+          idempotencyKey: req.body.idempotencyKey,
+          ...getTenantQuery(req)
+        });
+        if (existing) {
+          return res.status(200).json(existing);
+        }
       }
     }
     res.status(500).json({ success: false, message: 'Error creating payment transaction', error: error.message });
@@ -185,7 +214,16 @@ exports.createPayment = async (req, res) => {
 // GET /api/payments/:id
 exports.getPaymentById = async (req, res) => {
   try {
-    const payment = await PaymentTransaction.findById(req.params.id);
+    let payment = null;
+    if (mongoose.Types.ObjectId.isValid(req.params.id)) {
+      payment = await PaymentTransaction.findById(req.params.id);
+    }
+    if (!payment) {
+      payment = await PaymentTransaction.findOne({
+        ...getTenantQuery(req),
+        $or: [{ clientUuid: req.params.id }, { referenceNumber: req.params.id }]
+      });
+    }
     if (!payment || !hasTenantAccess(payment, req)) {
       return res.status(404).json({ success: false, message: 'Payment transaction not found.' });
     }

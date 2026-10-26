@@ -5,6 +5,8 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 const dotenv = require('dotenv');
+const mongoose = require('mongoose');
+const { verifyDatabaseIndexes } = require('./database/indexVerification');
 
 // Ensure dotenv loads backend/.env before MongoDB connection code executes
 dotenv.config({ path: path.join(__dirname, '.env') });
@@ -60,6 +62,37 @@ app.use('/api/reminders', reminderRoutes);
 app.use('/api/notes', noteRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/ledger', ledgerRoutes);
+
+// Health Check Endpoints (For Render deployment monitoring & zero-downtime health verification)
+app.get('/api/health', (req, res) => {
+  const dbState = mongoose.connection.readyState;
+  const dbStatus = dbState === 1 ? 'connected' : dbState === 2 ? 'connecting' : 'disconnected';
+  const isHealthy = dbState === 1;
+  res.status(isHealthy ? 200 : 503).json({
+    status: isHealthy ? 'healthy' : 'unhealthy',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    database: {
+      status: dbStatus,
+      host: mongoose.connection.host || 'unknown',
+      name: mongoose.connection.name || 'unknown'
+    }
+  });
+});
+
+app.get('/api/admin/health/indexes', protect, authorize('ADMIN'), async (req, res) => {
+  try {
+    const results = await verifyDatabaseIndexes();
+    const allVerified = Object.values(results).every((r) => r.status === 'VERIFIED');
+    res.status(allVerified ? 200 : 207).json({
+      success: true,
+      allVerified,
+      indexes: results
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
 
 // Secure Demo Reset Endpoint
 const handleDemoReset = async (req, res) => {

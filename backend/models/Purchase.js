@@ -21,6 +21,7 @@ const purchaseSchema = new mongoose.Schema(
       ref: 'User',
       index: true
     },
+    clientUuid: { type: String, sparse: true, index: true },
     supplier: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Supplier',
@@ -66,6 +67,13 @@ const purchaseSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-purchaseSchema.index({ userId: 1, idempotencyKey: 1 }, { unique: true, sparse: true });
+purchaseSchema.index(
+  { userId: 1, idempotencyKey: 1 },
+  { unique: true, partialFilterExpression: { idempotencyKey: { $type: 'string' } } }
+);
+purchaseSchema.index(
+  { userId: 1, clientUuid: 1 },
+  { unique: true, partialFilterExpression: { clientUuid: { $type: 'string' } } }
+);
 
 module.exports = mongoose.model('Purchase', purchaseSchema);

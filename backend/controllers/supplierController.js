@@ -117,13 +117,24 @@ exports.getSuppliers = async (req, res) => {
 // POST /api/suppliers (With Duplicate Prevention & Auto-Reactivation)
 exports.createSupplier = async (req, res) => {
   try {
-    const { name, phone, email, address, contactPerson } = req.body;
+    const { clientUuid, name, phone, email, address, contactPerson } = req.body;
 
     if (!name || !name.trim()) {
       return res.status(400).json({ success: false, message: 'Supplier name is required.' });
     }
     if (!phone || !phone.trim()) {
       return res.status(400).json({ success: false, message: 'Phone number is required.' });
+    }
+
+    // Idempotency check by clientUuid
+    if (clientUuid) {
+      const existingByUuid = await Supplier.findOne({
+        ...getTenantQuery(req),
+        clientUuid
+      });
+      if (existingByUuid) {
+        return res.status(200).json(existingByUuid);
+      }
     }
 
     // Check for existing supplier by phone within tenant to prevent accidental duplicate creation
@@ -141,6 +152,7 @@ exports.createSupplier = async (req, res) => {
 
     const supplier = new Supplier({
       userId: req.user?._id,
+      clientUuid: clientUuid || undefined,
       businessId: req.user?.businessId,
       name: name.trim(),
       phone: phone.trim(),
@@ -153,6 +165,15 @@ exports.createSupplier = async (req, res) => {
     const savedSupplier = await supplier.save();
     res.status(201).json(savedSupplier);
   } catch (error) {
+    if (error.code === 11000 && req.body.clientUuid) {
+      const existing = await Supplier.findOne({
+        ...getTenantQuery(req),
+        clientUuid: req.body.clientUuid
+      });
+      if (existing) {
+        return res.status(200).json(existing);
+      }
+    }
     res.status(500).json({ success: false, message: 'Error creating supplier', error: error.message });
   }
 };

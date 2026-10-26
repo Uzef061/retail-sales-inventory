@@ -11,7 +11,14 @@ const saleItemSchema = new mongoose.Schema({
   costPrice: { type: Number, required: true, min: 0 },
   totalAmount: { type: Number, required: true, min: 0 },
   totalCostAmount: { type: Number, required: true, min: 0 },
-  profit: { type: Number, required: true }
+  profit: { type: Number, required: true },
+  fulfillmentStatus: {
+    type: String,
+    enum: ['FULFILLED', 'STOCK_DEFICIT'],
+    default: 'FULFILLED'
+  },
+  fulfilledQuantity: { type: Number, default: 0 },
+  deficitQuantity: { type: Number, default: 0 }
 });
 
 const saleSchema = new mongoose.Schema(
@@ -21,6 +28,7 @@ const saleSchema = new mongoose.Schema(
       ref: 'User',
       index: true
     },
+    clientUuid: { type: String, sparse: true, index: true },
     invoiceNumber: { type: String, unique: true, sparse: true },
     customer: {
       type: mongoose.Schema.Types.ObjectId,
@@ -56,6 +64,16 @@ const saleSchema = new mongoose.Schema(
       default: 'COMPLETED'
     },
     returnedAmount: { type: Number, default: 0 },
+    fulfillmentStatus: {
+      type: String,
+      enum: ['FULFILLED', 'STOCK_DEFICIT'],
+      default: 'FULFILLED',
+      index: true
+    },
+    reconciliationRequired: { type: Boolean, default: false, index: true },
+    reconciledAt: { type: Date },
+    reconciledBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    reconciliationNotes: { type: String, trim: true, default: '' },
     cancelledAt: { type: Date },
     cancelledBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     cancellationReason: { type: String },
@@ -67,6 +85,16 @@ const saleSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+saleSchema.index(
+  { userId: 1, clientUuid: 1 },
+  { unique: true, partialFilterExpression: { clientUuid: { $type: 'string' } } }
+);
+saleSchema.index(
+  { userId: 1, idempotencyKey: 1 },
+  { unique: true, partialFilterExpression: { idempotencyKey: { $type: 'string' } } }
+);
+saleSchema.index({ userId: 1, reconciliationRequired: 1 });
 
 // Virtual helper for actual selling price compatibility
 saleSchema.virtual('actualSellingPrice').get(function () {

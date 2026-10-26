@@ -8,6 +8,11 @@ const paymentTransactionSchema = new mongoose.Schema(
       required: true,
       index: true
     },
+    clientUuid: {
+      type: String,
+      sparse: true,
+      index: true
+    },
     type: {
       type: String,
       enum: ['RECEIVE', 'GIVE'],
@@ -70,6 +75,15 @@ const paymentTransactionSchema = new mongoose.Schema(
     }
   },
   { timestamps: true }
+);
+
+paymentTransactionSchema.index(
+  { userId: 1, clientUuid: 1 },
+  { unique: true, partialFilterExpression: { clientUuid: { $type: 'string' } } }
+);
+paymentTransactionSchema.index(
+  { userId: 1, idempotencyKey: 1 },
+  { unique: true, partialFilterExpression: { idempotencyKey: { $type: 'string' } } }
 );
 
 module.exports = mongoose.model('PaymentTransaction', paymentTransactionSchema);

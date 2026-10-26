@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const seedData = require('./seed');
 const Product = require('../models/Product');
+const { attachIndexListeners } = require('./indexVerification');
 
 const connectDB = async () => {
   const mongoURI = process.env.MONGODB_URI ? process.env.MONGODB_URI.trim() : '';
@@ -30,6 +31,9 @@ const connectDB = async () => {
       process.exit(1);
     }
   }
+
+  // Observable index creation monitoring
+  attachIndexListeners();
 
   // Note: Automatic demo seeding on DB connection is disabled to prevent
   // unassigned dummy records from appearing in tenant and Google-linked accounts.

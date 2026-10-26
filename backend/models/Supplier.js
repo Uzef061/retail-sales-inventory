@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const supplierSchema = new mongoose.Schema(
   {
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
+    clientUuid: { type: String, sparse: true, index: true },
     name: { type: String, required: true, trim: true },
     phone: { type: String, required: true, trim: true },
     email: { type: String, trim: true, default: '' },
@@ -14,5 +15,9 @@ const supplierSchema = new mongoose.Schema(
 );
 
 supplierSchema.index({ userId: 1, phone: 1 });
+supplierSchema.index(
+  { userId: 1, clientUuid: 1 },
+  { unique: true, partialFilterExpression: { clientUuid: { $type: 'string' } } }
+);
 
 module.exports = mongoose.model('Supplier', supplierSchema);

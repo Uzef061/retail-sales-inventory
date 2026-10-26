@@ -14,6 +14,8 @@ router.put('/:id', protect, saleController.updateSale);
 router.put('/:id/cancel', protect, saleController.cancelSale);
 router.post('/:id/cancel', protect, saleController.cancelSale);
 router.post('/:id/return', protect, saleController.returnSale);
+router.post('/:id/reconcile-stock', protect, saleController.reconcileStockDeficit);
+router.put('/:id/reconcile-stock', protect, saleController.reconcileStockDeficit);
 router.delete('/returns/:returnId', protect, saleController.deleteSaleReturn);
 router.delete('/:id/returns/:returnId', protect, saleController.deleteSaleReturn);
 router.delete('/:id', protect, saleController.deleteSale);

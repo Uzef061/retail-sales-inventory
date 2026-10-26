@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const productSchema = new mongoose.Schema(
   {
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
+    clientUuid: { type: String, sparse: true, index: true },
     name: { type: String, required: true, trim: true },
     category: { type: String, trim: true, default: 'General' },
     costPrice: { type: Number, required: true, min: 0, default: 0 },
@@ -32,5 +33,10 @@ const productSchema = new mongoose.Schema(
 productSchema.virtual('profitPerUnit').get(function () {
   return (this.sellingPrice || 0) - (this.costPrice || 0);
 });
+
+productSchema.index(
+  { userId: 1, clientUuid: 1 },
+  { unique: true, partialFilterExpression: { clientUuid: { $type: 'string' } } }
+);
 
 module.exports = mongoose.model('Product', productSchema);

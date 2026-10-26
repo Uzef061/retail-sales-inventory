@@ -35,7 +35,7 @@ exports.getProducts = async (req, res) => {
 // POST /api/products (Simplified Product Entry: Name, CP, SP)
 exports.createProduct = async (req, res) => {
   try {
-    const { name, category, costPrice, sellingPrice, price, stock, reorderLevel, reorderQuantity, sku } = req.body;
+    const { clientUuid, name, category, costPrice, sellingPrice, price, stock, reorderLevel, reorderQuantity, sku } = req.body;
 
     if (!name || !name.trim()) {
       return res.status(400).json({ success: false, message: 'Product name is required.', errorCode: 'MISSING_NAME' });
@@ -50,6 +50,17 @@ exports.createProduct = async (req, res) => {
         message: 'Cost price and selling price must be valid non-negative numbers.',
         errorCode: 'NEGATIVE_PRICE'
       });
+    }
+
+    // Idempotency check by clientUuid
+    if (clientUuid) {
+      const existingByUuid = await Product.findOne({
+        ...getTenantQuery(req),
+        clientUuid
+      });
+      if (existingByUuid) {
+        return res.status(200).json(existingByUuid);
+      }
     }
 
     // Default stock to 0 for newly created products unless explicitly provided
@@ -76,6 +87,7 @@ exports.createProduct = async (req, res) => {
 
     const product = new Product({
       userId: req.user?._id,
+      clientUuid: clientUuid || undefined,
       name: name.trim(),
       category: finalCategory,
       costPrice: finalCostPrice,
@@ -91,6 +103,15 @@ exports.createProduct = async (req, res) => {
     const savedProduct = await product.save();
     res.status(201).json(savedProduct);
   } catch (error) {
+    if (error.code === 11000 && req.body.clientUuid) {
+      const existing = await Product.findOne({
+        ...getTenantQuery(req),
+        clientUuid: req.body.clientUuid
+      });
+      if (existing) {
+        return res.status(200).json(existing);
+      }
+    }
     res.status(500).json({ success: false, message: 'Error creating product', error: error.message });
   }
 };
@@ -99,7 +120,16 @@ exports.createProduct = async (req, res) => {
 exports.updateProduct = async (req, res) => {
   try {
     const { id } = req.params;
-    const product = await Product.findById(id);
+    let product = null;
+    if (mongoose.Types.ObjectId.isValid(id)) {
+      product = await Product.findById(id);
+    }
+    if (!product) {
+      product = await Product.findOne({
+        ...getTenantQuery(req),
+        $or: [{ clientUuid: id }, { sku: id }]
+      });
+    }
     if (!product || !hasTenantAccess(product, req)) {
       return res.status(404).json({ success: false, message: 'Product not found' });
     }

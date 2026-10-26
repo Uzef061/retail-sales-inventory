@@ -88,6 +88,7 @@ exports.getPurchaseById = async (req, res) => {
 exports.createPurchase = async (req, res) => {
   try {
     const {
+      clientUuid,
       supplier,
       supplierId,
       supplierName,
@@ -113,10 +114,13 @@ exports.createPurchase = async (req, res) => {
     } = req.body;
 
     // 0. Idempotency check to prevent duplicate restock on rapid Save taps
-    if (idempotencyKey) {
+    if (clientUuid || idempotencyKey) {
+      const orConditions = [];
+      if (clientUuid) orConditions.push({ clientUuid });
+      if (idempotencyKey) orConditions.push({ idempotencyKey });
       const existingPurchase = await Purchase.findOne({
-        idempotencyKey,
-        ...getTenantQuery(req)
+        ...getTenantQuery(req),
+        $or: orConditions
       })
         .populate('supplier', 'name phone email contactPerson companyName address')
         .populate('product', 'name category costPrice sellingPrice stock')
@@ -139,8 +143,16 @@ exports.createPurchase = async (req, res) => {
       targetSupplierId = targetSupplierId._id || targetSupplierId.id;
     }
 
-    if (targetSupplierId && mongoose.Types.ObjectId.isValid(targetSupplierId)) {
-      targetSupplier = await Supplier.findById(targetSupplierId);
+    if (targetSupplierId) {
+      if (mongoose.Types.ObjectId.isValid(targetSupplierId)) {
+        targetSupplier = await Supplier.findById(targetSupplierId);
+      }
+      if (!targetSupplier) {
+        targetSupplier = await Supplier.findOne({
+          ...getTenantQuery(req),
+          clientUuid: targetSupplierId
+        });
+      }
       if (targetSupplier && !hasTenantAccess(targetSupplier, req)) {
         return res.status(403).json({
           success: false,
@@ -188,9 +200,10 @@ exports.createPurchase = async (req, res) => {
         let prodDoc = null;
         if (mongoose.Types.ObjectId.isValid(prodId)) {
           prodDoc = await Product.findById(prodId);
-        } else {
+        }
+        if (!prodDoc) {
           prodDoc = await Product.findOne(
-            getTenantQuery(req, { $or: [{ sku: prodId }, { name: prodId }] })
+            getTenantQuery(req, { $or: [{ clientUuid: prodId }, { sku: prodId }, { name: prodId }] })
           );
         }
 
@@ -368,6 +381,7 @@ exports.createPurchase = async (req, res) => {
       const firstItem = normalizedItems[0];
       const purchase = new Purchase({
         userId: req.user?._id,
+        clientUuid: clientUuid || undefined,
         businessId: req.user?.businessId,
         supplier: targetSupplier ? targetSupplier._id : undefined,
         product: firstItem.product,
@@ -402,17 +416,32 @@ exports.createPurchase = async (req, res) => {
 
     res.status(201).json(populatedPurchase);
   } catch (error) {
-    if (error.code === 11000 && req.body.idempotencyKey) {
-      const existing = await Purchase.findOne({
-        idempotencyKey: req.body.idempotencyKey,
-        ...getTenantQuery(req)
-      })
-        .populate('supplier', 'name phone email contactPerson companyName address')
-        .populate('product', 'name category costPrice sellingPrice stock')
-        .populate('items.product', 'name category costPrice sellingPrice stock')
-        .populate('createdById', 'name username');
-      if (existing) {
-        return res.status(200).json(existing);
+    if (error.code === 11000) {
+      if (req.body.clientUuid) {
+        const existing = await Purchase.findOne({
+          clientUuid: req.body.clientUuid,
+          ...getTenantQuery(req)
+        })
+          .populate('supplier', 'name phone email contactPerson companyName address')
+          .populate('product', 'name category costPrice sellingPrice stock')
+          .populate('items.product', 'name category costPrice sellingPrice stock')
+          .populate('createdById', 'name username');
+        if (existing) {
+          return res.status(200).json(existing);
+        }
+      }
+      if (req.body.idempotencyKey) {
+        const existing = await Purchase.findOne({
+          idempotencyKey: req.body.idempotencyKey,
+          ...getTenantQuery(req)
+        })
+          .populate('supplier', 'name phone email contactPerson companyName address')
+          .populate('product', 'name category costPrice sellingPrice stock')
+          .populate('items.product', 'name category costPrice sellingPrice stock')
+          .populate('createdById', 'name username');
+        if (existing) {
+          return res.status(200).json(existing);
+        }
       }
     }
     console.error('Error creating purchase order:', error);
@@ -425,6 +454,7 @@ exports.returnPurchase = async (req, res) => {
   try {
     const { id } = req.params;
     const {
+      clientUuid,
       returnAmount,
       returnedItems,
       reason,
@@ -433,10 +463,13 @@ exports.returnPurchase = async (req, res) => {
     } = req.body;
 
     // 0. Idempotency check
-    if (idempotencyKey) {
+    if (clientUuid || idempotencyKey) {
+      const orConditions = [];
+      if (clientUuid) orConditions.push({ clientUuid });
+      if (idempotencyKey) orConditions.push({ idempotencyKey });
       const existingReturn = await PurchaseReturn.findOne({
-        idempotencyKey,
-        ...getTenantQuery(req)
+        ...getTenantQuery(req),
+        $or: orConditions
       });
       if (existingReturn) {
         const existingPurchase = await Purchase.findById(existingReturn.purchaseId)
@@ -452,7 +485,16 @@ exports.returnPurchase = async (req, res) => {
       }
     }
 
-    const purchase = await Purchase.findById(id).populate('supplier');
+    let purchase = null;
+    if (mongoose.Types.ObjectId.isValid(id)) {
+      purchase = await Purchase.findById(id).populate('supplier');
+    }
+    if (!purchase) {
+      purchase = await Purchase.findOne({
+        ...getTenantQuery(req),
+        $or: [{ clientUuid: id }, { referenceNumber: id }]
+      }).populate('supplier');
+    }
     if (!purchase || !hasTenantAccess(purchase, req)) {
       return res.status(404).json({ success: false, message: 'Purchase record not found.' });
     }
@@ -615,6 +657,8 @@ exports.returnPurchase = async (req, res) => {
       // 2b. Create PurchaseReturn Document
       const purchaseReturn = new PurchaseReturn({
         userId: req.user?._id,
+        clientUuid: clientUuid || undefined,
+        purchaseClientUuid: purchase.clientUuid || undefined,
         businessId: req.user?.businessId,
         purchaseId: purchase._id,
         referenceNumber: returnRef,
@@ -679,6 +723,21 @@ exports.returnPurchase = async (req, res) => {
       purchase: updatedPurchase
     });
   } catch (error) {
+    if (error.code === 11000 && req.body.clientUuid) {
+      const existing = await PurchaseReturn.findOne({
+        clientUuid: req.body.clientUuid,
+        ...getTenantQuery(req)
+      });
+      if (existing) {
+        const existingPurchase = await Purchase.findById(existing.purchaseId);
+        return res.status(200).json({
+          success: true,
+          message: 'Purchase return already processed (idempotent)',
+          return: existing,
+          purchase: existingPurchase
+        });
+      }
+    }
     console.error('Error processing purchase return:', error);
     res.status(500).json({ success: false, message: 'Error processing purchase return', error: error.message });
   }
